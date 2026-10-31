@@ -1,0 +1,13 @@
+name = "lssd-recrutement"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+GUILD_ID = "1564674450069135440"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lssd-bot"
+database_id = "REMPLACER_APRES_CREATION"
+migrations_dir = "migrations"
