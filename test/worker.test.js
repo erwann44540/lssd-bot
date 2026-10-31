@@ -26,11 +26,14 @@ test('Formulaire : quatre champs obligatoires, espaces seuls refusés',()=>{
 });
 test('Cycle complet, confidentialité et contrôles des droits',async()=>{
  const DB=database(); DB.db.prepare('INSERT INTO config VALUES (?,?,?)').run('guild','role','category');
- const calls=[]; let seq=0;
+ const calls=[]; let seq=0; let failArchive=false;
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async(url,options={})=>{
   const body=options.body?JSON.parse(options.body):undefined;
   calls.push({url,method:options.method,body});
+  if(url.endsWith('/guilds/guild/channels') && options.method==='GET') return Response.json([{id:'archives',name:'LSSD Archives',type:4}]);
+  if(url.endsWith('/users/@me')) return Response.json({id:'bot'});
+  if(url.endsWith('/channels/ticket1') && options.method==='PATCH' && failArchive) return Response.json({},{status:403});
   if(url.endsWith('/channels/category')) return Response.json({id:'category',type:4,guild_id:'guild',permission_overwrites:[{id:'guild',type:0,deny:'1024'},{id:'role',type:0,allow:(P.view|P.manageThreads).toString()}]});
   if(url.endsWith('/guilds/guild/channels')) return Response.json({id:`ticket${++seq}`});
   if(url.endsWith('/threads')) return Response.json({id:'private-thread'});
@@ -51,15 +54,24 @@ test('Cycle complet, confidentialité et contrôles des droits',async()=>{
   const thread=calls.find(c=>c.url.endsWith('/threads')).body;
   assert.equal(thread.type,12);assert.equal(thread.invitable,false);
   await interact({id:'2',type:5,data:{custom_id:'application',components:fields}});
-  assert.equal(calls.filter(c=>c.url.endsWith('/guilds/guild/channels')).length,1);
+  assert.equal(calls.filter(c=>c.url.endsWith('/guilds/guild/channels')&&c.method==='POST').length,1);
   await interact({id:'3',type:3,channel_id:'ticket1',data:{custom_id:'close'}});
   assert.equal(DB.db.prepare('SELECT status FROM tickets').get().status,'open');
+  failArchive=true;
+  await interact({id:'failed-close',type:3,channel_id:'ticket1',member:{user:{id:'teacher'},roles:['role'],permissions:'0'},data:{custom_id:'close'}});
+  assert.equal(DB.db.prepare('SELECT status FROM tickets').get().status,'open');
+  failArchive=false;
   await interact({id:'4',type:3,channel_id:'ticket1',member:{user:{id:'teacher'},roles:['role'],permissions:'0'},data:{custom_id:'close'}});
   assert.equal(DB.db.prepare('SELECT status FROM tickets').get().status,'closed');
-  const overwrite=calls.find(c=>c.url.endsWith('/permissions/candidate'));assert.equal(overwrite.body.deny,'1024');
+  const moved=calls.filter(c=>c.url.endsWith('/channels/ticket1')&&c.method==='PATCH').at(-1).body;
+  assert.equal(moved.parent_id,'archives');
+  assert.equal(moved.permission_overwrites.find(o=>o.id==='candidate').deny,'1024');
+  assert.equal(moved.permission_overwrites.find(o=>o.id==='candidate').allow,'0');
+  assert.equal(moved.permission_overwrites.find(o=>o.id==='guild').deny,'1024');
+  assert.ok(BigInt(moved.permission_overwrites.find(o=>o.id==='role').allow)&P.view);
   await interact({id:'5',type:5,data:{custom_id:'application',components:fields}});
-  assert.equal(calls.filter(c=>c.url.endsWith('/guilds/guild/channels')).length,2);
-  assert.equal(calls.filter(c=>c.url.endsWith('/guilds/guild/channels'))[1].body.name,'dossier-reponse-de-test-0002');
+  assert.equal(calls.filter(c=>c.url.endsWith('/guilds/guild/channels')&&c.method==='POST').length,2);
+  assert.equal(calls.filter(c=>c.url.endsWith('/guilds/guild/channels')&&c.method==='POST')[1].body.name,'dossier-reponse-de-test-0002');
   const res=await interact({id:'6',type:3,guild_id:'other',data:{custom_id:'apply'}});assert.equal((await res.json()).type,4);
  } finally {globalThis.fetch=originalFetch;DB.db.close();}
 });
