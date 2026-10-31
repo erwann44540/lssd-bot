@@ -11,7 +11,7 @@ async function signed(payload) {
  return new Request('https://bot.test/interactions',{method:'POST',body,headers:{'x-signature-timestamp':time,'x-signature-ed25519':sig}});
 }
 function database() {
- const db=new DatabaseSync(':memory:'); for(const migration of ['0001_init.sql','0002_ticket_numbers.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
+ const db=new DatabaseSync(':memory:'); for(const migration of ['0001_init.sql','0002_ticket_numbers.sql','0003_staff_roles.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
  return {prepare(sql){return {bind(...args){const st=db.prepare(sql);return {first:async()=>st.get(...args)??null,run:async()=>({meta:{changes:st.run(...args).changes}})};}}},db};
 }
 test('Signatures : authentique, corps altéré et signature manquante',async()=>{
@@ -25,7 +25,8 @@ test('Formulaire : quatre champs obligatoires, espaces seuls refusés',()=>{
  assert.throws(()=>answers({components:[{components:[{custom_id:'name',value:'  '}]}]}));
 });
 test('Cycle complet, confidentialité et contrôles des droits',async()=>{
- const DB=database(); DB.db.prepare('INSERT INTO config VALUES (?,?,?)').run('guild','role','category');
+ const DB=database(); DB.db.prepare('INSERT INTO config(guild_id,role_id,category_id) VALUES (?,?,?)').run('guild','role','category');
+ DB.db.prepare('UPDATE config SET staff_role_ids=? WHERE guild_id=?').run(JSON.stringify(['supervisor']),'guild');
  const calls=[]; let seq=0; let failArchive=false;
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async(url,options={})=>{
@@ -61,7 +62,7 @@ test('Cycle complet, confidentialité et contrôles des droits',async()=>{
   await interact({id:'failed-close',type:3,channel_id:'ticket1',member:{user:{id:'teacher'},roles:['role'],permissions:'0'},data:{custom_id:'close'}});
   assert.equal(DB.db.prepare('SELECT status FROM tickets').get().status,'open');
   failArchive=false;
-  await interact({id:'4',type:3,channel_id:'ticket1',member:{user:{id:'teacher'},roles:['role'],permissions:'0'},data:{custom_id:'close'}});
+  await interact({id:'4',type:3,channel_id:'ticket1',member:{user:{id:'teacher'},roles:['supervisor'],permissions:'0'},data:{custom_id:'close'}});
   assert.equal(DB.db.prepare('SELECT status FROM tickets').get().status,'closed');
   const moved=calls.filter(c=>c.url.endsWith('/channels/ticket1')&&c.method==='PATCH').at(-1).body;
   assert.equal(moved.parent_id,'archives');
@@ -69,6 +70,7 @@ test('Cycle complet, confidentialité et contrôles des droits',async()=>{
   assert.equal(moved.permission_overwrites.find(o=>o.id==='candidate').allow,'0');
   assert.equal(moved.permission_overwrites.find(o=>o.id==='guild').deny,'1024');
   assert.ok(BigInt(moved.permission_overwrites.find(o=>o.id==='role').allow)&P.view);
+  assert.ok(BigInt(moved.permission_overwrites.find(o=>o.id==='supervisor').allow)&P.view);
   await interact({id:'5',type:5,data:{custom_id:'application',components:fields}});
   assert.equal(calls.filter(c=>c.url.endsWith('/guilds/guild/channels')&&c.method==='POST').length,2);
   assert.equal(calls.filter(c=>c.url.endsWith('/guilds/guild/channels')&&c.method==='POST')[1].body.name,'dossier-reponse-de-test-0002');

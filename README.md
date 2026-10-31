@@ -1,6 +1,6 @@
 # LSSD — Recrutement Discord
 
-Bot en français utilisant les interactions HTTP Discord et Cloudflare Workers + D1. Aucun ordinateur à laisser allumé, aucun intent privilégié. Serveurs autorisés : `1564674450069135440` et `1564674197286953033` (GUILD_IDS dans wrangler.toml). Chaque serveur conserve sa configuration et son compteur indépendants.
+Bot en français utilisant les interactions HTTP Discord et Cloudflare Workers + D1. Aucun ordinateur à laisser allumé, aucun intent privilégié. Recrutement autorisé uniquement sur Academy : `1564674450069135440` (GUILD_IDS dans wrangler.toml). Le serveur principal `1564674197286953033` utilise les corps et grades, sans recrutement.
 
 ## Fonctionnement
 
@@ -8,7 +8,7 @@ Bot en français utilisant les interactions HTTP Discord et Cloudflare Workers +
 - Le bouton ouvre un formulaire : Prénom Nom, Motivations, Expériences, Pourquoi vous et pas quelqu’un d’autre ?
 - À la validation, le bot crée un salon privé pour le candidat, les Instructeurs et le bot, et y publie les réponses. Les salons portent le nom `dossier-prenom-nom-0001`, puis `0002`, etc., avec un compteur persistant par serveur. Les numéros ne sont jamais réutilisés ; une création échouée peut laisser un numéro inutilisé. Une seule candidature ouverte par personne, même après un redémarrage.
 - Un fil privé non invitable est créé dans le dossier pour les délibérations. Le rôle Instructeur dispose de Gérer les fils et peut le consulter sans invitation individuelle. Le candidat n’est pas invité dans ce fil.
-- Les boutons réservés au rôle Instructeur permettent de retrouver/créer le fil et de clôturer le dossier. La clôture déplace le salon et ses fils dans la catégorie privée **⭐ Archives ⭐**, retire l’accès du candidat et conserve le dossier pour les Instructeurs ; elle permet une nouvelle candidature.
+- Les boutons réservés aux Instructeurs, à leurs supérieurs configurés dans config.staff_role_ids et aux administrateurs permettent de retrouver/créer le fil et de clôturer le dossier. La clôture déplace le salon et ses fils dans la catégorie privée **⭐ Archives ⭐**, retire l’accès du candidat et conserve le dossier pour les Instructeurs ; elle permet une nouvelle candidature.
 
 Les administrateurs/propriétaires du serveur conservent leurs accès Discord. Un candidat possédant Administrateur ou Gérer les fils par un autre rôle peut également avoir accès aux délibérations : ne donnez pas ces permissions aux candidats. Ne leur attribuez pas le rôle Instructeur. Les anciens dossiers gardent leurs permissions lors d’un changement du rôle configuré ; révisez-les manuellement.
 
@@ -69,3 +69,11 @@ Les tests couvrent les signatures Discord, les permissions du dossier/fil, les c
 Les réponses aux formulaires restent dans les salons Discord privés ; D1 ne contient que les identifiants des dossiers, du serveur, des utilisateurs et leur état. Les dossiers fermés sont conservés jusqu’à leur suppression manuelle par un administrateur. Une création interrompue brutalement peut laisser une réservation `creating` : vérifier qu’aucun salon n’a été créé avant de corriger la ligne dans D1. Si le salon est créé mais la publication échoue, un Instructeur peut consulter le salon et demander une nouvelle candidature après clôture ; ne republiez pas les réponses dans un espace public.
 
 
+
+## Organisation Discord
+
+Academy : Haut Gradés, Chef Instructeur, Assistant-Chef Instructeur, Instructeur Superviseur, Instructeur. Les espaces privés sont séparés en Instructeurs, Supervision et Direction Academy. Les rôles supérieurs sont enregistrés dans `config.staff_role_ids` pour conserver leurs accès aux dossiers et archives.
+
+Serveur principal : les permissions reposent sur Corps de Direction, Corps d’Encadrement et Corps d’Application. Les 11 grades définis dans #grades sont des rôles d’affichage sans permissions et affichés séparément dans la liste des membres. Un membre reçoit son corps et son grade. Aucun recrutement n’est activé sur ce serveur.
+
+Les émojis personnalisés Discord ne sont pas affichables dans les noms des catégories. Le logo :lssd: est utilisé dans les panneaux des recrutements et archives ; les catégories utilisent des étoiles Unicode.

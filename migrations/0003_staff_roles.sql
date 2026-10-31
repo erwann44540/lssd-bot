@@ -1,0 +1,1 @@
+ALTER TABLE config ADD COLUMN staff_role_ids TEXT NOT NULL DEFAULT '[]';

@@ -43,7 +43,8 @@ async function api(env,path,method='GET',body) {
     return response.status===204?null:response.json();
   }
 }
-const instructor = (i,c) => i.member?.roles?.includes(c.role_id);
+export const staffRoles = c => [...new Set([c.role_id,...JSON.parse(c.staff_role_ids??'[]')])];
+const instructor = (i,c) => admin(i) || i.member?.roles?.some(id=>staffRoles(c).includes(id));
 const admin = i => (BigInt(i.member?.permissions??0)&8n)!==0n;
 async function finish(env,i,content) {
   await api(env,`/webhooks/${i.application_id}/${i.token}/messages/@original`,'PATCH',{content,allowed_mentions:{parse:[]}});
@@ -52,17 +53,20 @@ async function config(env,i) { return env.DB.prepare('SELECT * FROM config WHERE
 async function staffThread(env,channel) {
   return api(env,`/channels/${channel}/threads`,'POST',{name:'Délibérations • Instructeurs',type:12,invitable:false,auto_archive_duration:1440});
 }
-export async function ensureArchives(env,guildId,roleId) {
+export function privateOverwrites(guildId,roleIds,botId) {
+  return [{id:guildId,type:0,deny:P.view.toString()},...roleIds.map(id=>({id,type:0,allow:allow(P.view,P.send,P.history,P.manageThreads,P.privateThreads,P.threadSend)})),{id:botId,type:1,allow:allow(P.view,P.send,P.history,P.embed,P.manageChannels,P.manageThreads,P.privateThreads,P.threadSend)}];
+}
+export async function ensureArchives(env,guildId,roleId,extraRoleIds=[]) {
   const channels=await api(env,`/guilds/${guildId}/channels`);
   let category=channels.find(c=>c.type===4 && ['⭐ Archives ⭐','LSSD Archives','Archives'].includes(c.name));
   const me=await api(env,'/users/@me');
-  const overwrites=[{id:guildId,type:0,deny:P.view.toString()},{id:roleId,type:0,allow:allow(P.view,P.send,P.history,P.manageThreads,P.privateThreads,P.threadSend)},{id:me.id,type:1,allow:allow(P.view,P.send,P.history,P.embed,P.manageChannels,P.manageThreads,P.privateThreads,P.threadSend)}];
+  const overwrites=privateOverwrites(guildId,[...new Set([roleId,...extraRoleIds])],me.id);
   if(category) await api(env,`/channels/${category.id}`,'PATCH',{name:'⭐ Archives ⭐',permission_overwrites:overwrites});
   else category=await api(env,`/guilds/${guildId}/channels`,'POST',{name:'⭐ Archives ⭐',type:4,permission_overwrites:overwrites});
   return {id:category.id,permission_overwrites:overwrites};
 }
-export async function archiveDossier(env,guildId,roleId,ticket) {
-  const archive=await ensureArchives(env,guildId,roleId);
+export async function archiveDossier(env,guildId,roleId,ticket,extraRoleIds=[]) {
+  const archive=await ensureArchives(env,guildId,roleId,extraRoleIds);
   // Move and revoke candidate access together; never inherit public permissions.
   await api(env,`/channels/${ticket.channel_id}`,'PATCH',{parent_id:archive.id,permission_overwrites:[...archive.permission_overwrites.filter(o=>o.id!==ticket.user_id),{id:ticket.user_id,type:1,allow:'0',deny:P.view.toString()}]});
 }
@@ -75,14 +79,14 @@ async function setup(env,i) {
   const panel=await api(env,`/channels/${options.salon}`);
   if(panel.guild_id!==i.guild_id || panel.type!==0) throw new Error('Choisissez un salon textuel de ce serveur.');
   const me=await api(env,'/users/@me');
-  const overwrites=[{id:i.guild_id,type:0,deny:P.view.toString()},{id:role.id,type:0,allow:allow(P.view,P.send,P.history,P.manageThreads,P.privateThreads,P.threadSend)},{id:me.id,type:1,allow:allow(P.view,P.send,P.history,P.embed,P.manageChannels,P.manageThreads,P.privateThreads,P.threadSend)}];
   let c=await config(env,i);
+  const overwrites=privateOverwrites(i.guild_id,[...new Set([role.id,...(c?JSON.parse(c.staff_role_ids):[])])],me.id);
   let category;
   if(c) {
     category=await api(env,`/channels/${c.category_id}`);
     await api(env,`/channels/${category.id}`,'PATCH',{name:'⭐ Recrutements ⭐',permission_overwrites:overwrites});
   } else category=await api(env,`/guilds/${i.guild_id}/channels`,'POST',{name:'⭐ Recrutements ⭐',type:4,permission_overwrites:overwrites});
-  await env.DB.prepare('INSERT INTO config VALUES (?,?,?) ON CONFLICT(guild_id) DO UPDATE SET role_id=excluded.role_id,category_id=excluded.category_id').bind(i.guild_id,role.id,category.id).run();
+  await env.DB.prepare('INSERT INTO config(guild_id,role_id,category_id) VALUES (?,?,?) ON CONFLICT(guild_id) DO UPDATE SET role_id=excluded.role_id,category_id=excluded.category_id').bind(i.guild_id,role.id,category.id).run();
   await api(env,`/channels/${panel.id}/messages`,'POST',{embeds:[{title:'Rejoindre le LSSD',description:'Ouvrez votre candidature et remplissez le formulaire. Un dossier privé sera créé avec les Instructeurs.',color:0xc6a34a}],components:[row(button('apply','Déposer ma candidature'))],allowed_mentions:{parse:[]}});
   return 'Panneau publié et catégorie privée configurée. Les changements de rôle s’appliquent aux nouveaux dossiers ; vérifiez les anciens dossiers avant de retirer un rôle.';
 }
@@ -137,7 +141,7 @@ async function process(env,i) {
         return `Fil privé créé : <#${t.id}>.`;
       } catch(e) { await env.DB.prepare('UPDATE tickets SET thread_id=NULL WHERE id=?').bind(ticket.id).run(); throw e; }
     }
-    await archiveDossier(env,i.guild_id,c.role_id,ticket);
+    await archiveDossier(env,i.guild_id,c.role_id,ticket,staffRoles(c));
     await env.DB.prepare("UPDATE tickets SET status='closed' WHERE id=?").bind(ticket.id).run();
     await api(env,`/channels/${ticket.channel_id}/messages`,'POST',{content:`Dossier clôturé par <@${i.member.user.id}>. Le dossier a été déplacé dans ⭐ Archives ⭐ et l’accès du candidat a été retiré.`,allowed_mentions:{parse:[]}});
     return 'Dossier clôturé et déplacé dans ⭐ Archives ⭐ pour les Instructeurs. Le candidat peut déposer une nouvelle candidature.';
