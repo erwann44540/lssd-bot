@@ -87,3 +87,11 @@ test('Numérotation persistante, atomique et indépendante par serveur',async()=
   assert.equal(dossierName('Jean Dupont',10000),'dossier-jean-dupont-10000');
  } finally {DB.db.close();}
 });
+
+test('Les interactions acceptent seulement les deux serveurs configurés',async()=>{
+ const env={GUILD_IDS:'guild,second',DISCORD_PUBLIC_KEY:publicKey};
+ for(const [guild_id,type] of [['guild',9],['second',9],['unknown',4]]) {
+  const r=await worker.fetch(await signed({type:3,guild_id,member:{user:{id:'candidate'}},data:{custom_id:'apply'}}),env,{});
+  assert.equal((await r.json()).type,type);
+ }
+});

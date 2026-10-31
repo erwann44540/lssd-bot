@@ -5,6 +5,7 @@ workers_dev = true
 
 [vars]
 GUILD_ID = "1564674450069135440"
+GUILD_IDS = "1564674450069135440,1564674197286953033"
 
 [[d1_databases]]
 binding = "DB"

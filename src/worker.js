@@ -54,11 +54,11 @@ async function staffThread(env,channel) {
 }
 export async function ensureArchives(env,guildId,roleId) {
   const channels=await api(env,`/guilds/${guildId}/channels`);
-  let category=channels.find(c=>c.type===4 && c.name==='LSSD Archives');
+  let category=channels.find(c=>c.type===4 && ['⭐ Archives ⭐','LSSD Archives','Archives'].includes(c.name));
   const me=await api(env,'/users/@me');
   const overwrites=[{id:guildId,type:0,deny:P.view.toString()},{id:roleId,type:0,allow:allow(P.view,P.send,P.history,P.manageThreads,P.privateThreads,P.threadSend)},{id:me.id,type:1,allow:allow(P.view,P.send,P.history,P.embed,P.manageChannels,P.manageThreads,P.privateThreads,P.threadSend)}];
-  if(category) await api(env,`/channels/${category.id}`,'PATCH',{permission_overwrites:overwrites});
-  else category=await api(env,`/guilds/${guildId}/channels`,'POST',{name:'LSSD Archives',type:4,permission_overwrites:overwrites});
+  if(category) await api(env,`/channels/${category.id}`,'PATCH',{name:'⭐ Archives ⭐',permission_overwrites:overwrites});
+  else category=await api(env,`/guilds/${guildId}/channels`,'POST',{name:'⭐ Archives ⭐',type:4,permission_overwrites:overwrites});
   return {id:category.id,permission_overwrites:overwrites};
 }
 export async function archiveDossier(env,guildId,roleId,ticket) {
@@ -80,8 +80,8 @@ async function setup(env,i) {
   let category;
   if(c) {
     category=await api(env,`/channels/${c.category_id}`);
-    await api(env,`/channels/${category.id}`,'PATCH',{permission_overwrites:overwrites});
-  } else category=await api(env,`/guilds/${i.guild_id}/channels`,'POST',{name:'LSSD • Recrutements',type:4,permission_overwrites:overwrites});
+    await api(env,`/channels/${category.id}`,'PATCH',{name:'⭐ Recrutements ⭐',permission_overwrites:overwrites});
+  } else category=await api(env,`/guilds/${i.guild_id}/channels`,'POST',{name:'⭐ Recrutements ⭐',type:4,permission_overwrites:overwrites});
   await env.DB.prepare('INSERT INTO config VALUES (?,?,?) ON CONFLICT(guild_id) DO UPDATE SET role_id=excluded.role_id,category_id=excluded.category_id').bind(i.guild_id,role.id,category.id).run();
   await api(env,`/channels/${panel.id}/messages`,'POST',{embeds:[{title:'Rejoindre le LSSD',description:'Ouvrez votre candidature et remplissez le formulaire. Un dossier privé sera créé avec les Instructeurs.',color:0xc6a34a}],components:[row(button('apply','Déposer ma candidature'))],allowed_mentions:{parse:[]}});
   return 'Panneau publié et catégorie privée configurée. Les changements de rôle s’appliquent aux nouveaux dossiers ; vérifiez les anciens dossiers avant de retirer un rôle.';
@@ -139,8 +139,8 @@ async function process(env,i) {
     }
     await archiveDossier(env,i.guild_id,c.role_id,ticket);
     await env.DB.prepare("UPDATE tickets SET status='closed' WHERE id=?").bind(ticket.id).run();
-    await api(env,`/channels/${ticket.channel_id}/messages`,'POST',{content:`Dossier clôturé par <@${i.member.user.id}>. Le dossier a été déplacé dans LSSD Archives et l’accès du candidat a été retiré.`,allowed_mentions:{parse:[]}});
-    return 'Dossier clôturé et déplacé dans LSSD Archives pour les Instructeurs. Le candidat peut déposer une nouvelle candidature.';
+    await api(env,`/channels/${ticket.channel_id}/messages`,'POST',{content:`Dossier clôturé par <@${i.member.user.id}>. Le dossier a été déplacé dans ⭐ Archives ⭐ et l’accès du candidat a été retiré.`,allowed_mentions:{parse:[]}});
+    return 'Dossier clôturé et déplacé dans ⭐ Archives ⭐ pour les Instructeurs. Le candidat peut déposer une nouvelle candidature.';
   }
   throw new Error('Interaction inconnue.');
 }
@@ -153,7 +153,7 @@ export default {
     if(!await verify(request,body,env.DISCORD_PUBLIC_KEY)) return new Response('Invalid signature',{status:401});
     let i; try { i=JSON.parse(body); } catch { return new Response('Invalid JSON',{status:400}); }
     if(i.type===1) return Response.json({type:1});
-    if(i.guild_id!==env.GUILD_ID || !i.member) return reply('Ce bot est réservé au serveur LSSD configuré.');
+    if(!(env.GUILD_IDS??env.GUILD_ID??'').split(',').map(id=>id.trim()).filter(Boolean).includes(i.guild_id) || !i.member) return reply('Ce bot est réservé aux serveurs LSSD configurés.');
     if(i.type===3 && i.data.custom_id==='apply') return Response.json(modal());
     ctx.waitUntil((async()=>{
       try { await finish(env,i,await process(env,i)); }

@@ -1,6 +1,6 @@
 # LSSD — Recrutement Discord
 
-Bot en français utilisant les interactions HTTP Discord et Cloudflare Workers + D1. Aucun ordinateur à laisser allumé, aucun intent privilégié. Serveur autorisé : `1564674450069135440`.
+Bot en français utilisant les interactions HTTP Discord et Cloudflare Workers + D1. Aucun ordinateur à laisser allumé, aucun intent privilégié. Serveurs autorisés : `1564674450069135440` et `1564674197286953033` (GUILD_IDS dans wrangler.toml). Chaque serveur conserve sa configuration et son compteur indépendants.
 
 ## Fonctionnement
 
@@ -8,7 +8,7 @@ Bot en français utilisant les interactions HTTP Discord et Cloudflare Workers +
 - Le bouton ouvre un formulaire : Prénom Nom, Motivations, Expériences, Pourquoi vous et pas quelqu’un d’autre ?
 - À la validation, le bot crée un salon privé pour le candidat, les Instructeurs et le bot, et y publie les réponses. Les salons portent le nom `dossier-prenom-nom-0001`, puis `0002`, etc., avec un compteur persistant par serveur. Les numéros ne sont jamais réutilisés ; une création échouée peut laisser un numéro inutilisé. Une seule candidature ouverte par personne, même après un redémarrage.
 - Un fil privé non invitable est créé dans le dossier pour les délibérations. Le rôle Instructeur dispose de Gérer les fils et peut le consulter sans invitation individuelle. Le candidat n’est pas invité dans ce fil.
-- Les boutons réservés au rôle Instructeur permettent de retrouver/créer le fil et de clôturer le dossier. La clôture déplace le salon et ses fils dans la catégorie privée **LSSD Archives**, retire l’accès du candidat et conserve le dossier pour les Instructeurs ; elle permet une nouvelle candidature.
+- Les boutons réservés au rôle Instructeur permettent de retrouver/créer le fil et de clôturer le dossier. La clôture déplace le salon et ses fils dans la catégorie privée **⭐ Archives ⭐**, retire l’accès du candidat et conserve le dossier pour les Instructeurs ; elle permet une nouvelle candidature.
 
 Les administrateurs/propriétaires du serveur conservent leurs accès Discord. Un candidat possédant Administrateur ou Gérer les fils par un autre rôle peut également avoir accès aux délibérations : ne donnez pas ces permissions aux candidats. Ne leur attribuez pas le rôle Instructeur. Les anciens dossiers gardent leurs permissions lors d’un changement du rôle configuré ; révisez-les manuellement.
 
