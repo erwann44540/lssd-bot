@@ -13,6 +13,14 @@ export function answers(data) {
   for (const [key,max] of [['name',100],['motivation',1500],['experience',1500],['why',1500]]) if (!result[key] || result[key].length<2 || result[key].length>max) throw new Error('Formulaire incomplet ou trop long.');
   return result;
 }
+export function dossierName(name, number) {
+  const slug=name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,65).replace(/-+$/g,'') || 'candidat';
+  return `dossier-${slug}-${String(number).padStart(4,'0')}`;
+}
+export async function nextTicketNumber(db, guildId) {
+  const counter=await db.prepare('INSERT INTO ticket_counters(guild_id,last_number) VALUES (?,1) ON CONFLICT(guild_id) DO UPDATE SET last_number=last_number+1 RETURNING last_number').bind(guildId).first();
+  return counter.last_number;
+}
 export async function verify(request, body, key) {
   try {
     const signature = request.headers.get('x-signature-ed25519');
@@ -74,9 +82,11 @@ async function apply(env,i,c) {
   }
   let channel;
   try {
+    const number=await nextTicketNumber(env.DB,i.guild_id);
+    await env.DB.prepare('UPDATE tickets SET ticket_number=? WHERE id=?').bind(number,i.id).run();
     const parent=await api(env,`/channels/${c.category_id}`);
     if(parent.guild_id!==i.guild_id || parent.type!==4) throw new Error('Catégorie invalide. Relancez /lssd-config.');
-    channel=await api(env,`/guilds/${i.guild_id}/channels`,'POST',{name:`dossier-${a.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').slice(0,65)}-${user.slice(-4)}`,type:0,parent_id:parent.id,topic:`Candidature LSSD • ${user}`,permission_overwrites:[...parent.permission_overwrites.filter(o=>o.id!==user),{id:user,type:1,allow:allow(P.view,P.send,P.history,P.threadSend),deny:allow(P.privateThreads,P.manageThreads)}]});
+    channel=await api(env,`/guilds/${i.guild_id}/channels`,'POST',{name:dossierName(a.name,number),type:0,parent_id:parent.id,topic:`Candidature LSSD • ${user}`,permission_overwrites:[...parent.permission_overwrites.filter(o=>o.id!==user),{id:user,type:1,allow:allow(P.view,P.send,P.history,P.threadSend),deny:allow(P.privateThreads,P.manageThreads)}]});
     await env.DB.prepare("UPDATE tickets SET channel_id=?,status='open' WHERE id=?").bind(channel.id,i.id).run();
     const labels={name:'Prénom Nom',motivation:'Motivations',experience:'Expériences',why:'Pourquoi vous et pas quelqu’un d’autre ?'};
     await api(env,`/channels/${channel.id}/messages`,'POST',{content:`Candidature de <@${user}> • <@&${c.role_id}>`,embeds:[{title:'Dossier de recrutement LSSD',color:0xc6a34a,description:'Les Instructeurs étudieront votre candidature.'},...Object.entries(a).filter(([k])=>labels[k]).map(([k,value])=>({title:labels[k],description:value,color:0x243b53}))],components:[row(button('staff','Créer / ouvrir le fil Instructeurs',2),button('close','Clôturer le dossier',4))],allowed_mentions:{parse:[],users:[user],roles:[c.role_id]}});

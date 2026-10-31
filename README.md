@@ -6,7 +6,7 @@ Bot en français utilisant les interactions HTTP Discord et Cloudflare Workers +
 
 - Un administrateur publie le panneau via `/lssd-config instructeur:@Instructeur salon:#recrutement`.
 - Le bouton ouvre un formulaire : Prénom Nom, Motivations, Expériences, Pourquoi vous et pas quelqu’un d’autre ?
-- À la validation, le bot crée un salon privé pour le candidat, les Instructeurs et le bot, et y publie les réponses. Une seule candidature ouverte par personne, même après un redémarrage.
+- À la validation, le bot crée un salon privé pour le candidat, les Instructeurs et le bot, et y publie les réponses. Les salons portent le nom `dossier-prenom-nom-0001`, puis `0002`, etc., avec un compteur persistant par serveur. Les numéros ne sont jamais réutilisés ; une création échouée peut laisser un numéro inutilisé. Une seule candidature ouverte par personne, même après un redémarrage.
 - Un fil privé non invitable est créé dans le dossier pour les délibérations. Le rôle Instructeur dispose de Gérer les fils et peut le consulter sans invitation individuelle. Le candidat n’est pas invité dans ce fil.
 - Les boutons réservés au rôle Instructeur permettent de retrouver/créer le fil et de clôturer le dossier. La clôture retire l’accès du candidat et conserve le dossier ; elle permet une nouvelle candidature.
 

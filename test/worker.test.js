@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import worker,{verify,modal,answers,P} from '../src/worker.js';
+import worker,{verify,modal,answers,P,dossierName,nextTicketNumber} from '../src/worker.js';
 const pair=await crypto.subtle.generateKey('Ed25519',true,['sign','verify']);
 const publicKey=Buffer.from(await crypto.subtle.exportKey('raw',pair.publicKey)).toString('hex');
 async function signed(payload) {
@@ -11,7 +11,7 @@ async function signed(payload) {
  return new Request('https://bot.test/interactions',{method:'POST',body,headers:{'x-signature-timestamp':time,'x-signature-ed25519':sig}});
 }
 function database() {
- const db=new DatabaseSync(':memory:'); db.exec(readFileSync(new URL('../migrations/0001_init.sql',import.meta.url),'utf8'));
+ const db=new DatabaseSync(':memory:'); for(const migration of ['0001_init.sql','0002_ticket_numbers.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
  return {prepare(sql){return {bind(...args){const st=db.prepare(sql);return {first:async()=>st.get(...args)??null,run:async()=>({meta:{changes:st.run(...args).changes}})};}}},db};
 }
 test('Signatures : authentique, corps altéré et signature manquante',async()=>{
@@ -43,6 +43,7 @@ test('Cycle complet, confidentialité et contrôles des droits',async()=>{
  try {
   await interact({id:'1',type:5,data:{custom_id:'application',components:fields}});
   const ticket=calls.find(c=>c.url.endsWith('/guilds/guild/channels')).body;
+  assert.equal(ticket.name,'dossier-reponse-de-test-0001');
   assert.equal(ticket.permission_overwrites.find(o=>o.id==='guild').deny,'1024');
   const candidate=ticket.permission_overwrites.find(o=>o.id==='candidate');
   assert.equal(BigInt(candidate.deny)&P.manageThreads,P.manageThreads);
@@ -58,6 +59,19 @@ test('Cycle complet, confidentialité et contrôles des droits',async()=>{
   const overwrite=calls.find(c=>c.url.endsWith('/permissions/candidate'));assert.equal(overwrite.body.deny,'1024');
   await interact({id:'5',type:5,data:{custom_id:'application',components:fields}});
   assert.equal(calls.filter(c=>c.url.endsWith('/guilds/guild/channels')).length,2);
+  assert.equal(calls.filter(c=>c.url.endsWith('/guilds/guild/channels'))[1].body.name,'dossier-reponse-de-test-0002');
   const res=await interact({id:'6',type:3,guild_id:'other',data:{custom_id:'apply'}});assert.equal((await res.json()).type,4);
  } finally {globalThis.fetch=originalFetch;DB.db.close();}
+});
+
+test('Numérotation persistante, atomique et indépendante par serveur',async()=>{
+ const DB=database();
+ try {
+  const numbers=await Promise.all(Array.from({length:20},()=>nextTicketNumber(DB,'guild')));
+  assert.deepEqual(numbers,Array.from({length:20},(_,i)=>i+1));
+  assert.equal(await nextTicketNumber(DB,'other'),1);
+  assert.equal(await nextTicketNumber(DB,'guild'),21);
+  assert.equal(dossierName('  Émile  Dupont  ',1),'dossier-emile-dupont-0001');
+  assert.equal(dossierName('Jean Dupont',10000),'dossier-jean-dupont-10000');
+ } finally {DB.db.close();}
 });
