@@ -9,5 +9,6 @@ GUILD_ID = "1564674450069135440"
 [[d1_databases]]
 binding = "DB"
 database_name = "lssd-bot"
-database_id = "REMPLACER_APRES_CREATION"
+database_id = "906e90b6-820b-4e02-9335-e6d75071f64f"
 migrations_dir = "migrations"
+
