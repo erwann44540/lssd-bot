@@ -42,13 +42,13 @@ Copiez le `database_id` obtenu dans `wrangler.toml`, puis :
 
 ```powershell
 npm run db:remote
-npx wrangler secret put DISCORD_TOKEN
+node --env-file=.dev.vars scripts/upload-token.mjs
 npx wrangler secret put DISCORD_PUBLIC_KEY
 npm run deploy
 npm run register
 ```
 
-Les deux commandes `secret put` demandent les valeurs dans le terminal. Ouvrez le lien d’invitation affiché par `register` avec un compte pouvant gérer le serveur. Le bot ne demande pas Administrateur. Il lui faut Gérer les salons, Voir les salons, Envoyer des messages, Voir les anciens messages, Gérer les fils, Créer des fils privés et Envoyer des messages dans les fils ; autorisez aussi Intégrer des liens pour les embeds. Le bot peut apparaître hors ligne : il répond par HTTP sans connexion Gateway, c’est normal.
+Le script upload-token lit le token dans .dev.vars sans affichage ; secret put demande la clé publique dans le terminal. Ouvrez le lien d’invitation affiché par `register` avec un compte pouvant gérer le serveur. Le bot ne demande pas Administrateur. Il lui faut Gérer les rôles (pour modifier les permissions des dossiers), Gérer les salons, Voir les salons, Envoyer des messages, Voir les anciens messages, Gérer les fils, Créer des fils privés et Envoyer des messages dans les fils ; autorisez aussi Intégrer des liens pour les embeds. Le bot peut apparaître hors ligne : il répond par HTTP sans connexion Gateway, c’est normal.
 
 Dans General Information de l’application Discord, définissez **Interactions Endpoint URL** sur `https://lssd-recrutement.<votre-sous-domaine>.workers.dev/interactions` en reprenant l’URL exacte affichée au déploiement. Discord vérifie automatiquement la signature et le ping.
 
@@ -67,3 +67,5 @@ npm run dev
 Les tests couvrent les signatures Discord, les permissions du dossier/fil, les candidatures en double, la clôture et les refus d’accès. Pour mettre à jour : `npm ci`, `npm test`, `npm run deploy`. Pour actualiser la commande : `npm run register`.
 
 Les réponses aux formulaires restent dans les salons Discord privés ; D1 ne contient que les identifiants des dossiers, du serveur, des utilisateurs et leur état. Les dossiers fermés sont conservés jusqu’à leur suppression manuelle par un administrateur. Une création interrompue brutalement peut laisser une réservation `creating` : vérifier qu’aucun salon n’a été créé avant de corriger la ligne dans D1. Si le salon est créé mais la publication échoue, un Instructeur peut consulter le salon et demander une nouvelle candidature après clôture ; ne republiez pas les réponses dans un espace public.
+
+

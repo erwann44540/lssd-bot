@@ -4,6 +4,7 @@ const command={name:'lssd-config',description:'Configurer le recrutement LSSD et
 const response=await fetch(`https://discord.com/api/v10/applications/${DISCORD_APPLICATION_ID}/guilds/${GUILD_ID}/commands`,{method:'POST',headers:{Authorization:`Bot ${DISCORD_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify(command)});
 if(!response.ok) throw new Error(`Enregistrement refusé : HTTP ${response.status}. Vérifiez le token, l’application et le serveur.`);
 console.log('Commande /lssd-config enregistrée.');
-const permissions=16n|1024n|2048n|16384n|65536n|17179869184n|68719476736n|274877906944n;
+const permissions=16n|1024n|2048n|16384n|65536n|268435456n|17179869184n|68719476736n|274877906944n;
 console.log(`Invitation : https://discord.com/oauth2/authorize?client_id=${DISCORD_APPLICATION_ID}&scope=bot%20applications.commands&permissions=${permissions}&guild_id=${GUILD_ID}&disable_guild_select=true`);
+
 
