@@ -86,14 +86,18 @@ export function noticeText(kind, candidateId, instructorId, appointment) {
 }
 
 export function recruitmentModal(kind, draftId, step) {
-  const [title, fields] = forms[kind].groups[step];
+  const {groups} = forms[kind];
+  const [title, fields] = groups[step];
+  const guidance = step+1 === groups.length
+    ? 'Cliquez sur Envoyer pour déposer votre dossier.'
+    : 'Cliquez sur Envoyer, puis sur Suivant pour continuer.';
   return Response.json({type:9,data:{
     custom_id: `form:${kind}:${draftId}:${step}`,
-    title,
-    components: fields.map(([custom_id,label,limit]) => ({
+    title: `${step+1}/${groups.length} · ${step === 0 ? 'Infos personnelles et expériences' : title}`,
+    components: fields.map(([custom_id,label,limit], index) => ({
       type:18,
       label: label.length > 45 ? (custom_id === 'fdl' ? 'Expériences dans les FDL' : custom_id === 'why' ? 'Pourquoi vous reprendre ?' : custom_id === 'repli' ? 'Réexamen en candidature classique' : 'Développement de la faction') : label,
-      ...(label.length > 45 ? {description:label} : {}),
+      ...(label.length > 45 ? {description:label} : index === 0 ? {description:guidance} : {}),
       component: custom_id === 'repli'
         ? {type:3,custom_id,placeholder:'En cas de refus comme Sergeant',options:[
           {label:'Oui',value:'oui'}, {label:'Non',value:'non'},

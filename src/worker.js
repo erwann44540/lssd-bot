@@ -225,7 +225,7 @@ async function formInteraction(env, i) {
 
   if (step+1 < forms[kind].groups.length) {
     return Response.json({type:4,data:{flags:64,content:`Partie ${step+1}/${forms[kind].groups.length} enregistrée.`,
-      components:[row(button(`next:${kind}:${draftId}:${step+1}`,`Suivant · ${forms[kind].groups[step+1][0]}`))],
+      components:[row(button(`next:${kind}:${draftId}:${step+1}`,'Suivant'))],
     }});
   }
   return {config:c,kind,options:collected,draftId};
