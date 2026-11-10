@@ -1,8 +1,9 @@
 import test from 'node:test';
+import { recruitmentCommand } from '../src/recruitment.js';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import worker,{verify,modal,answers,P,dossierName,nextTicketNumber} from '../src/worker.js';
+import worker,{verify,answers,P,dossierName,nextTicketNumber} from '../src/worker.js';
 const pair=await crypto.subtle.generateKey('Ed25519',true,['sign','verify']);
 const publicKey=Buffer.from(await crypto.subtle.exportKey('raw',pair.publicKey)).toString('hex');
 async function signed(payload) {
@@ -11,7 +12,7 @@ async function signed(payload) {
  return new Request('https://bot.test/interactions',{method:'POST',body,headers:{'x-signature-timestamp':time,'x-signature-ed25519':sig}});
 }
 function database() {
- const db=new DatabaseSync(':memory:'); for(const migration of ['0001_init.sql','0002_ticket_numbers.sql','0003_staff_roles.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
+ const db=new DatabaseSync(':memory:'); for(const migration of ['0001_init.sql','0002_ticket_numbers.sql','0003_staff_roles.sql','0004_recruitment.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
  return {prepare(sql){return {bind(...args){const st=db.prepare(sql);return {first:async()=>st.get(...args)??null,run:async()=>({meta:{changes:st.run(...args).changes}})};}}},db};
 }
 test('Signatures : authentique, corps altéré et signature manquante',async()=>{
@@ -20,8 +21,7 @@ test('Signatures : authentique, corps altéré et signature manquante',async()=>
  assert.equal(await verify(new Request('https://x'),'{}',publicKey),false);
  const response=await worker.fetch(await signed({type:1}),{DISCORD_PUBLIC_KEY:publicKey},{});assert.deepEqual(await response.json(),{type:1});
 });
-test('Formulaire : quatre champs obligatoires, espaces seuls refusés',()=>{
- assert.equal(modal().data.components.length,4);
+test('Ancien formulaire : espaces seuls refusés',()=>{
  assert.throws(()=>answers({components:[{components:[{custom_id:'name',value:'  '}]}]}));
 });
 test('Cycle complet, confidentialité et contrôles des droits',async()=>{
@@ -45,7 +45,24 @@ test('Cycle complet, confidentialité et contrôles des droits',async()=>{
  async function interact(data){const pending=[];const res=await worker.fetch(await signed({application_id:'app',token:'interaction',guild_id:'guild',member,...data}),env,{waitUntil:p=>pending.push(p)});await Promise.all(pending);return res;}
  const fields=['name','motivation','experience','why'].map(custom_id=>({type:1,components:[{custom_id,value:'Réponse de test'}]}));
  try {
-  await interact({id:'1',type:5,data:{custom_id:'application',components:fields}});
+  const subcommand = recruitmentCommand.options.find(option=>option.name==='candidature');
+  const options = subcommand.options.map(option=>({name:option.name,value:option.name==='age'?25:'Réponse de test'}));
+  await interact({id:'1',type:2,data:{name:'lssd',options:[{name:'candidature',options}]}});
+  const staff = {user:{id:'teacher'},roles:['supervisor'],permissions:'0'};
+  await interact({id:'notice-public',type:3,channel_id:'ticket1',member:staff,data:{custom_id:'notice:receipt'}});
+  assert.equal(DB.db.prepare('SELECT count(*) AS count FROM ticket_notices').get().count,0);
+  await interact({id:'notice-private',type:3,channel_id:'private-thread',member:staff,data:{custom_id:'notice:receipt'}});
+  await interact({id:'notice-duplicate',type:3,channel_id:'private-thread',member:staff,data:{custom_id:'notice:receipt'}});
+  const replies = () => calls.filter(call=>call.url.endsWith('/channels/ticket1/messages') && call.body.content.startsWith('Bonjour'));
+  assert.equal(replies().length,1);
+  await interact({id:'accept',type:2,channel_id:'private-thread',member:staff,data:{
+    name:'lssd',options:[{name:'rendezvous',options:[{name:'date_heure',value:'15 novembre à 21 h'}]}],
+  }});
+  await interact({id:'refuse-after-accept',type:3,channel_id:'private-thread',member:staff,data:{custom_id:'notice:refuse'}});
+  assert.equal(replies().length,2);
+  assert.match(replies()[1].body.content,/15 novembre à 21 h au poste de Dillimore/);
+  await interact({id:'ce-closed',type:2,data:{name:'lssd',options:[{name:'sergeant',options:[]}]}});
+  assert.match(calls.at(-1).body.content,/Sergeant sont fermées/);
   const ticket=calls.find(c=>c.url.endsWith('/guilds/guild/channels')).body;
   assert.equal(ticket.name,'dossier-reponse-de-test-0001');
   assert.equal(ticket.permission_overwrites.find(o=>o.id==='guild').deny,'1024');
@@ -92,8 +109,15 @@ test('Numérotation persistante, atomique et indépendante par serveur',async()=
 
 test('Les interactions acceptent seulement les deux serveurs configurés',async()=>{
  const env={GUILD_IDS:'guild,second',DISCORD_PUBLIC_KEY:publicKey};
- for(const [guild_id,type] of [['guild',9],['second',9],['unknown',4]]) {
-  const r=await worker.fetch(await signed({type:3,guild_id,member:{user:{id:'candidate'}},data:{custom_id:'apply'}}),env,{});
-  assert.equal((await r.json()).type,type);
+ for(const [guild_id,type] of [['guild',5],['second',5],['unknown',4]]) {
+  const pending = [];
+  const mockEnv = {...env, DB:{prepare:()=>({bind:()=>({first:async()=>({})})})}};
+  const savedFetch = globalThis.fetch;
+  try {
+   globalThis.fetch = async () => Response.json({});
+   const r=await worker.fetch(await signed({type:3,guild_id,member:{user:{id:'candidate'}},data:{custom_id:'apply'}}),mockEnv,{waitUntil(p){pending.push(p);}});
+   await Promise.all(pending);
+   assert.equal((await r.json()).type,type);
+  } finally { globalThis.fetch = savedFetch; }
  }
 });

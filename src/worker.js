@@ -1,13 +1,11 @@
+import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel } from './recruitment.js';
+
 const API = 'https://discord.com/api/v10';
 export const P = { view: 1024n, send: 2048n, history: 65536n, embed: 16384n, manageChannels: 16n, manageThreads: 17179869184n, privateThreads: 68719476736n, threadSend: 274877906944n };
 const allow = (...p) => p.reduce((a,b)=>a|b,0n).toString();
 const row = (...components) => ({type:1,components});
 const button = (custom_id,label,style=1) => ({type:2,custom_id,label,style});
 const reply = content => Response.json({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
-export function modal() {
-  const fields = [['name','Prénom Nom',1,100],['motivation','Motivations',2,1500],['experience','Expériences',2,1500],['why','Pourquoi vous et pas quelqu’un d’autre ?',2,1500]];
-  return {type:9,data:{custom_id:'application',title:'Recrutement LSSD',components:fields.map(([custom_id,label,style,max_length])=>row({type:4,custom_id,label,style,max_length,min_length:2,required:true}))}};
-}
 export function answers(data) {
   const result = Object.fromEntries((data.components??[]).flatMap(r=>r.components??[]).map(c=>[c.custom_id,c.value?.trim()]));
   for (const [key,max] of [['name',100],['motivation',1500],['experience',1500],['why',1500]]) if (!result[key] || result[key].length<2 || result[key].length>max) throw new Error('Formulaire incomplet ou trop long.');
@@ -36,10 +34,10 @@ async function api(env,path,method='GET',body) {
     const response = await fetch(API+path,{method,headers:{Authorization:`Bot ${env.DISCORD_TOKEN}`,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
     if (response.status===429 && attempt<2) {
       const error=await response.json();
-      if(error.retry_after>4) throw new Error('Discord est temporairement occupé. Réessayez.');
+      if(error.retry_after>4) throw Object.assign(new Error('Discord est temporairement occupé. Réessayez.'),{status:429});
       await new Promise(r=>setTimeout(r,Math.max(100,error.retry_after*1000))); continue;
     }
-    if (!response.ok) throw new Error(`Discord refuse cette opération (HTTP ${response.status}). Vérifiez les permissions du bot.`);
+    if (!response.ok) throw Object.assign(new Error(`Discord refuse cette opération (HTTP ${response.status}). Vérifiez les permissions du bot.`),{status:response.status});
     return response.status===204?null:response.json();
   }
 }
@@ -87,11 +85,17 @@ async function setup(env,i) {
     await api(env,`/channels/${category.id}`,'PATCH',{name:'⭐ Recrutements ⭐',permission_overwrites:overwrites});
   } else category=await api(env,`/guilds/${i.guild_id}/channels`,'POST',{name:'⭐ Recrutements ⭐',type:4,permission_overwrites:overwrites});
   await env.DB.prepare('INSERT INTO config(guild_id,role_id,category_id) VALUES (?,?,?) ON CONFLICT(guild_id) DO UPDATE SET role_id=excluded.role_id,category_id=excluded.category_id').bind(i.guild_id,role.id,category.id).run();
-  await api(env,`/channels/${panel.id}/messages`,'POST',{embeds:[{title:'Rejoindre le LSSD',description:'Ouvrez votre candidature et remplissez le formulaire. Un dossier privé sera créé avec les Instructeurs.',color:0xc6a34a}],components:[row(button('apply','Déposer ma candidature'))],allowed_mentions:{parse:[]}});
+  const message = c?.panel_channel_id === panel.id && c.panel_message_id
+    ? await api(env,`/channels/${panel.id}/messages/${c.panel_message_id}`, 'PATCH', recruitmentPanel(c.ce_enabled))
+    : await api(env,`/channels/${panel.id}/messages`, 'POST', recruitmentPanel(c?.ce_enabled));
+  await env.DB.prepare('UPDATE config SET panel_channel_id=?,panel_message_id=? WHERE guild_id=?')
+    .bind(panel.id,message.id,i.guild_id).run();
   return 'Panneau publié et catégorie privée configurée. Les changements de rôle s’appliquent aux nouveaux dossiers ; vérifiez les anciens dossiers avant de retirer un rôle.';
 }
-async function apply(env,i,c) {
-  const a=answers(i.data);
+async function apply(env,i,c,kind,options) {
+  if (kind === 'sergeant' && !c.ce_enabled) throw new Error('Les candidatures Sergeant sont fermées.');
+  const a = kind ? formAnswers(kind, options) : answers(i.data);
+  const label = kind ? forms[kind].label : 'Candidature';
   const user=i.member.user.id;
   const reservation=await env.DB.prepare("INSERT OR IGNORE INTO tickets(id,guild_id,user_id) VALUES (?,?,?)").bind(i.id,i.guild_id,user).run();
   if(!reservation.meta.changes) {
@@ -107,11 +111,11 @@ async function apply(env,i,c) {
     channel=await api(env,`/guilds/${i.guild_id}/channels`,'POST',{name:dossierName(a.name,number),type:0,parent_id:parent.id,topic:`Candidature LSSD • ${user}`,permission_overwrites:[...parent.permission_overwrites.filter(o=>o.id!==user),{id:user,type:1,allow:allow(P.view,P.send,P.history,P.threadSend),deny:allow(P.privateThreads,P.manageThreads)}]});
     await env.DB.prepare("UPDATE tickets SET channel_id=?,status='open' WHERE id=?").bind(channel.id,i.id).run();
     const labels={name:'Prénom Nom',motivation:'Motivations',experience:'Expériences',why:'Pourquoi vous et pas quelqu’un d’autre ?'};
-    await api(env,`/channels/${channel.id}/messages`,'POST',{content:`Candidature de <@${user}> • <@&${c.role_id}>`,embeds:[{title:'Dossier de recrutement LSSD',color:0xc6a34a,description:'Les Instructeurs étudieront votre candidature.'},...Object.entries(a).filter(([k])=>labels[k]).map(([k,value])=>({title:labels[k],description:value,color:0x243b53}))],components:[row(button('staff','Créer / ouvrir le fil Instructeurs',2),button('close','Clôturer le dossier',4))],allowed_mentions:{parse:[],users:[user],roles:[c.role_id]}});
+    await api(env,`/channels/${channel.id}/messages`,'POST',{content:`${label} · <@${user}> • <@&${c.role_id}>`,embeds:a.groups ? a.groups.map(group=>({...group,color:0x243b53})) : Object.entries(a).filter(([k])=>labels[k]).map(([k,value])=>({title:labels[k],description:value,color:0x243b53})),components:[row(button('staff','Créer / ouvrir le fil Instructeurs',2),button('close','Clôturer le dossier',4))],allowed_mentions:{parse:[],users:[user],roles:[c.role_id]}});
     try {
       const thread=await staffThread(env,channel.id);
       await env.DB.prepare('UPDATE tickets SET thread_id=? WHERE id=?').bind(thread.id,i.id).run();
-      await api(env,`/channels/${thread.id}/messages`,'POST',{content:'Délibérations réservées aux Instructeurs. Le candidat ne participe pas à ce fil.',allowed_mentions:{parse:[]}});
+      await api(env,`/channels/${thread.id}/messages`,'POST',{...noticeControls, nonce: i.id, enforce_nonce: true});
     } catch { return `Dossier créé : <#${channel.id}>. Les Instructeurs peuvent créer le fil privé avec le bouton du dossier si sa création automatique a échoué.`; }
     return `Votre candidature a été transmise : <#${channel.id}>.`;
   } catch(error) {
@@ -120,11 +124,84 @@ async function apply(env,i,c) {
     throw error;
   }
 }
+async function privateTicket(env, i, c) {
+  if (!instructor(i,c)) throw new Error('Action réservée aux Instructeurs.');
+  const ticket = await env.DB.prepare("SELECT * FROM tickets WHERE thread_id=? AND guild_id=? AND status='open'")
+    .bind(i.channel_id,i.guild_id).first();
+  if (!ticket) throw new Error('Utilisez le fil privé d’un dossier ouvert.');
+  return ticket;
+}
+
+async function sendNotice(env, i, ticket, kind, appointment) {
+  const slot = kind === 'receipt' ? 'receipt' : 'decision';
+  const claim = await env.DB.prepare(`INSERT OR IGNORE INTO ticket_notices(ticket_id,slot,interaction_id)
+    SELECT id,?,? FROM tickets WHERE id=? AND status='open'`).bind(slot,i.id,ticket.id).run();
+  if (!claim.meta.changes) return slot === 'receipt'
+    ? 'Un accusé de réception a déjà été demandé.'
+    : 'Une décision a déjà été enregistrée pour ce dossier.';
+  try {
+    await api(env,`/channels/${ticket.channel_id}/messages`,'POST',{
+      content: noticeText(kind,ticket.user_id,i.member.user.id,appointment),
+      allowed_mentions: { parse: [], users: [ticket.user_id] },
+      nonce: i.id,
+      enforce_nonce: true,
+    });
+  } catch (error) {
+    // Release only definite Discord rejections. A timeout can follow successful delivery.
+    if (error.status >= 400 && error.status < 500) {
+      await env.DB.prepare('DELETE FROM ticket_notices WHERE interaction_id=?').bind(i.id).run();
+    }
+    throw error;
+  }
+  return 'Message envoyé dans le dossier du candidat.';
+}
+
+async function recruitmentAction(env,i,c) {
+  if (i.type === 2 && i.data.name === 'lssd') {
+    const action = i.data.options?.[0];
+    if (action && Object.hasOwn(forms,action.name)) return apply(env,i,c,action.name,action.options);
+    if (action?.name === 'candidature_ce') {
+      if (!admin(i)) throw new Error('Configuration réservée aux administrateurs.');
+      const enabled = action.options?.find(option=>option.name==='activer')?.value;
+      if (typeof enabled !== 'boolean') throw new Error('Choisissez true ou false.');
+      if (!c.panel_channel_id || !c.panel_message_id) throw new Error('Publiez le panneau avec /lssd-config.');
+      await env.DB.prepare('UPDATE config SET ce_enabled=? WHERE guild_id=?').bind(Number(enabled),i.guild_id).run();
+      await api(env,`/channels/${c.panel_channel_id}/messages/${c.panel_message_id}`,'PATCH',recruitmentPanel(enabled));
+      return enabled ? 'Candidatures Sergeant ouvertes.' : 'Candidatures Sergeant fermées.';
+    }
+    if (action?.name === 'rendezvous') {
+      const ticket = await privateTicket(env,i,c);
+      const appointment = action.options?.find(option=>option.name==='date_heure')?.value?.trim();
+      if (!appointment || appointment.length < 5 || appointment.length > 100) throw new Error('Renseignez la date et l’heure du rendez-vous.');
+      return sendNotice(env,i,ticket,'accept',appointment);
+    }
+  }
+  if (i.type === 3 && i.data.custom_id.startsWith('apply')) {
+    const kind = i.data.custom_id === 'apply' ? 'candidature' : i.data.custom_id.slice(6);
+    if (!Object.hasOwn(forms,kind)) throw new Error('Parcours inconnu.');
+    if (kind === 'sergeant' && !c.ce_enabled) return 'Les candidatures Sergeant sont fermées.';
+    const slash = c.recruitment_command_id ? `</lssd ${kind}:${c.recruitment_command_id}>` : `\`/lssd ${kind}\``;
+    const extra = kind === 'sergeant' ? '\nEn cas de refus au poste de Sergeant, choisissez « Oui » dans \`repli\` pour demander l’examen de votre dossier comme candidature classique.' : '';
+    return `Remplissez les champs de ${slash} pour déposer votre dossier.${extra}`;
+  }
+  if (i.type === 3 && ['notice:receipt','notice:accept','notice:refuse'].includes(i.data.custom_id)) {
+    const ticket = await privateTicket(env,i,c);
+    const kind = i.data.custom_id.slice(7);
+    if (kind === 'accept') {
+      const command = c.recruitment_command_id ? `</lssd rendezvous:${c.recruitment_command_id}>` : '\`/lssd rendezvous\`';
+      return `Utilisez ${command} dans ce fil et indiquez la date et l’heure de la convocation.`;
+    }
+    return sendNotice(env,i,ticket,kind);
+  }
+}
+
 async function process(env,i) {
   if(i.type===2 && i.data.name==='lssd-config') return setup(env,i);
   const c=await config(env,i);
   if(!c) throw new Error('Un administrateur doit lancer /lssd-config avant les candidatures.');
   if(i.type===5 && i.data.custom_id==='application') return apply(env,i,c);
+  const recruitment = await recruitmentAction(env,i,c);
+  if (recruitment !== undefined) return recruitment;
   if(i.type===3 && ['close','staff'].includes(i.data.custom_id)) {
     if(!instructor(i,c)) throw new Error('Action réservée au rôle Instructeur.');
     const ticket=await env.DB.prepare('SELECT * FROM tickets WHERE channel_id=? AND guild_id=?').bind(i.channel_id,i.guild_id).first();
@@ -135,11 +212,16 @@ async function process(env,i) {
       // Atomically reserve thread creation, including across Worker instances.
       const claim=await env.DB.prepare("UPDATE tickets SET thread_id='creating' WHERE id=? AND thread_id IS NULL").bind(ticket.id).run();
       if(!claim.meta.changes) return 'Création du fil déjà en cours.';
+      let t;
       try {
-        const t=await staffThread(env,i.channel_id);
+        t=await staffThread(env,i.channel_id);
         await env.DB.prepare('UPDATE tickets SET thread_id=? WHERE id=?').bind(t.id,ticket.id).run();
+        await api(env,`/channels/${t.id}/messages`,'POST',{...noticeControls,nonce:i.id,enforce_nonce:true});
         return `Fil privé créé : <#${t.id}>.`;
-      } catch(e) { await env.DB.prepare('UPDATE tickets SET thread_id=NULL WHERE id=?').bind(ticket.id).run(); throw e; }
+      } catch(e) {
+        if (!t) await env.DB.prepare('UPDATE tickets SET thread_id=NULL WHERE id=?').bind(ticket.id).run();
+        throw e;
+      }
     }
     await archiveDossier(env,i.guild_id,c.role_id,ticket,staffRoles(c));
     await env.DB.prepare("UPDATE tickets SET status='closed' WHERE id=?").bind(ticket.id).run();
@@ -158,7 +240,6 @@ export default {
     let i; try { i=JSON.parse(body); } catch { return new Response('Invalid JSON',{status:400}); }
     if(i.type===1) return Response.json({type:1});
     if(!(env.GUILD_IDS??env.GUILD_ID??'').split(',').map(id=>id.trim()).filter(Boolean).includes(i.guild_id) || !i.member) return reply('Ce bot est réservé aux serveurs LSSD configurés.');
-    if(i.type===3 && i.data.custom_id==='apply') return Response.json(modal());
     ctx.waitUntil((async()=>{
       try { await finish(env,i,await process(env,i)); }
       catch(e) { try { await finish(env,i,e.message); } catch { console.error('Échec de réponse Discord',i.id); } }
