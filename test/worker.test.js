@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { forms, singleRecruitmentModal, singleFormOptions, recruitmentModal, recruitmentPanel, noticeControls } from '../src/recruitment.js';
+import { forms, recruitmentModal, recruitmentPanel, noticeControls } from '../src/recruitment.js';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
@@ -45,18 +45,20 @@ test('Cycle complet, confidentialité et contrôles des droits',async()=>{
  async function interact(data){const pending=[];const res=await worker.fetch(await signed({application_id:'app',token:'interaction',guild_id:'guild',member,...data}),env,{waitUntil:p=>pending.push(p)});await Promise.all(pending);return res;}
  const fields=['name','motivation','experience','why'].map(custom_id=>({type:1,components:[{custom_id,value:'Réponse de test'}]}));
  try {
-  const opened = await interact({id:'draft',type:3,data:{custom_id:'apply:candidature'}});
-  const modal = await opened.json();
-  assert.equal(modal.type,9);
-  assert.equal(modal.data.components.length,3);
-  const submitted = await interact({id:'form-1',type:5,data:{
-    custom_id:modal.data.custom_id,
-    components:forms.candidature.groups.map(([,fields],index)=>({component:{
-      custom_id:'section_'+index,
-      value:fields.map(([id,label])=>label+'\n'+(id==='age'?'25':'Réponse de test')).join('\n\n'),
-    }})),
-  }});
-  assert.equal((await submitted.json()).type,5);
+  let response = await interact({id:'draft',type:3,data:{custom_id:'apply:candidature'}});
+  for (const [step,[,fields]] of forms.candidature.groups.entries()) {
+    const modal = await response.json();
+    assert.equal(modal.type,9);
+    response = await interact({id:'form-'+step,type:5,data:{
+      custom_id:modal.data.custom_id,
+      components:fields.map(([custom_id])=>({component:{custom_id,value:custom_id==='age'?'25':'Réponse de test'}})),
+    }});
+    if (step < 2) {
+      const next = await response.json();
+      response = await interact({id:'next-'+step,type:3,data:{custom_id:next.data.components[0].components[0].custom_id}});
+    }
+  }
+  assert.equal((await response.json()).type,5);
   const staff = {user:{id:'teacher'},roles:['supervisor'],permissions:'0'};
   await interact({id:'notice-public',type:3,channel_id:'ticket1',member:staff,data:{custom_id:'notice:receipt'}});
   assert.equal(DB.db.prepare('SELECT count(*) AS count FROM ticket_notices').get().count,0);
@@ -150,17 +152,4 @@ test('Les trois parcours gardent leurs accents et leurs champs dans les trois pa
  assert.deepEqual(recruitmentPanel(true).components[0].components.map(button=>button.label),['Candidature','Réintégration','Corps d’Encadrement · Sergeant']);
  assert.equal(recruitmentPanel(false).components[0].components.length,2);
  assert.equal(noticeControls.components[0].components[0].label,'Accusé de réception');
-});
-
-test('Un seul formulaire affiche toutes les questions et conserve le choix Sergeant', async()=>{
- for(const kind of Object.keys(forms)) {
-  const {data}=await singleRecruitmentModal(kind,'draft').json();
-  assert.equal(data.components.length,kind==='sergeant'?4:3);
-  const values=Object.fromEntries(forms[kind].groups.map(([,fields],index)=>[
-   'section_'+index,fields.filter(([id])=>id!=='repli').map(([id,label])=>label+'\n'+(id==='age'?'25':'Réponse')).join('\n'),
-  ]));
-  if(kind==='sergeant') values.repli='oui';
-  assert.equal(singleFormOptions(kind,values).length,{candidature:8,reintegration:9,sergeant:10}[kind]);
-  assert.throws(()=>singleFormOptions(kind,{...values,section_0:''}));
- }
 });
