@@ -1,4 +1,4 @@
-import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel } from './recruitment.js';
+import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel, recruitmentModal } from './recruitment.js';
 
 const API = 'https://discord.com/api/v10';
 export const P = { view: 1024n, send: 2048n, history: 65536n, embed: 16384n, manageChannels: 16n, manageThreads: 17179869184n, privateThreads: 68719476736n, threadSend: 274877906944n };
@@ -159,7 +159,6 @@ async function sendNotice(env, i, ticket, kind, appointment) {
 async function recruitmentAction(env,i,c) {
   if (i.type === 2 && i.data.name === 'lssd') {
     const action = i.data.options?.[0];
-    if (action && Object.hasOwn(forms,action.name)) return apply(env,i,c,action.name,action.options);
     if (action?.name === 'candidature_ce') {
       if (!admin(i)) throw new Error('Configuration réservée aux administrateurs.');
       const enabled = action.options?.find(option=>option.name==='activer')?.value;
@@ -176,14 +175,6 @@ async function recruitmentAction(env,i,c) {
       return sendNotice(env,i,ticket,'accept',appointment);
     }
   }
-  if (i.type === 3 && i.data.custom_id.startsWith('apply')) {
-    const kind = i.data.custom_id === 'apply' ? 'candidature' : i.data.custom_id.slice(6);
-    if (!Object.hasOwn(forms,kind)) throw new Error('Parcours inconnu.');
-    if (kind === 'sergeant' && !c.ce_enabled) return 'Les candidatures Sergeant sont fermées.';
-    const slash = c.recruitment_command_id ? `</lssd ${kind}:${c.recruitment_command_id}>` : `\`/lssd ${kind}\``;
-    const extra = kind === 'sergeant' ? '\nEn cas de refus au poste de Sergeant, choisissez « Oui » dans \`repli\` pour demander l’examen de votre dossier comme candidature classique.' : '';
-    return `Remplissez les champs de ${slash} pour déposer votre dossier.${extra}`;
-  }
   if (i.type === 3 && ['notice:receipt','notice:accept','notice:refuse'].includes(i.data.custom_id)) {
     const ticket = await privateTicket(env,i,c);
     const kind = i.data.custom_id.slice(7);
@@ -193,6 +184,51 @@ async function recruitmentAction(env,i,c) {
     }
     return sendNotice(env,i,ticket,kind);
   }
+}
+
+async function formInteraction(env, i) {
+  const id = i.data.custom_id;
+  const [action, route, draftId, rawStep] = id.split(':');
+  const kind = id === 'apply' ? 'candidature' : route;
+  if (!Object.hasOwn(forms,kind)) return reply('Parcours inconnu.');
+  const c = await config(env,i);
+  if (!c) return reply('Le recrutement n’est pas configuré.');
+  if (kind === 'sergeant' && !c.ce_enabled) return reply('Les candidatures Sergeant sont fermées.');
+  if (action === 'apply') return recruitmentModal(kind,i.id,0);
+
+  const step = Number(rawStep);
+  if (!Number.isInteger(step) || step < 0 || step >= forms[kind].groups.length) return reply('Étape inconnue.');
+  const now = Date.now();
+  const owner = [draftId,i.guild_id,i.member.user.id,kind];
+  const draft = await env.DB.prepare('SELECT * FROM recruitment_drafts WHERE id=? AND guild_id=? AND user_id=? AND kind=? AND expires_at>?')
+    .bind(...owner,now).first();
+  if ((step > 0 && draft?.step !== step) || (step === 0 && draft)) return reply('Cette étape a déjà été envoyée ou a expiré. Reprenez depuis le panneau si nécessaire.');
+  if (action === 'next') return recruitmentModal(kind,draftId,step);
+
+  const options = i.data.components.map(({component})=>({
+    name: component.custom_id,
+    value: component.custom_id === 'age' ? Number(component.value) : component.values?.[0] ?? component.value,
+  }));
+  formAnswers(kind,options,step);
+  const collected = [...(draft ? JSON.parse(draft.answers) : []),...options];
+  const expires = now + 30 * 60 * 1000;
+  if (step === 0) {
+    await env.DB.prepare('DELETE FROM recruitment_drafts WHERE expires_at<=?').bind(now).run();
+    const result = await env.DB.prepare('INSERT OR IGNORE INTO recruitment_drafts VALUES (?,?,?,?,?,?,?)')
+      .bind(...owner,1,JSON.stringify(collected),expires).run();
+    if (!result.meta.changes) return reply('Cette étape a déjà été envoyée.');
+  } else {
+    const result = await env.DB.prepare('UPDATE recruitment_drafts SET step=?,answers=?,expires_at=? WHERE id=? AND guild_id=? AND user_id=? AND kind=? AND step=? AND expires_at>?')
+      .bind(step+1,JSON.stringify(collected),expires,...owner,step,now).run();
+    if (!result.meta.changes) return reply('Cette étape a déjà été envoyée ou a expiré.');
+  }
+
+  if (step+1 < forms[kind].groups.length) {
+    return Response.json({type:4,data:{flags:64,content:`Partie ${step+1}/${forms[kind].groups.length} enregistrée.`,
+      components:[row(button(`next:${kind}:${draftId}:${step+1}`,`Continuer · ${forms[kind].groups[step+1][0]}`))],
+    }});
+  }
+  return {config:c,kind,options:collected,draftId};
 }
 
 async function process(env,i) {
@@ -240,8 +276,26 @@ export default {
     let i; try { i=JSON.parse(body); } catch { return new Response('Invalid JSON',{status:400}); }
     if(i.type===1) return Response.json({type:1});
     if(!(env.GUILD_IDS??env.GUILD_ID??'').split(',').map(id=>id.trim()).filter(Boolean).includes(i.guild_id) || !i.member) return reply('Ce bot est réservé aux serveurs LSSD configurés.');
+    const id = i.data?.custom_id ?? '';
+    let completedForm;
+    if ((i.type === 3 && (id === 'apply' || id.startsWith('apply:') || id.startsWith('next:')))
+      || (i.type === 5 && id.startsWith('form:'))) {
+      try {
+        const result = await formInteraction(env,i);
+        if (result instanceof Response) return result;
+        completedForm = result;
+      } catch (error) {
+        return reply(error.message);
+      }
+    }
     ctx.waitUntil((async()=>{
-      try { await finish(env,i,await process(env,i)); }
+      try {
+        if (completedForm) {
+          const {config,kind,options,draftId} = completedForm;
+          try { await finish(env,i,await apply(env,i,config,kind,options)); }
+          finally { await env.DB.prepare('DELETE FROM recruitment_drafts WHERE id=?').bind(draftId).run(); }
+        } else await finish(env,i,await process(env,i));
+      }
       catch(e) { try { await finish(env,i,e.message); } catch { console.error('Échec de réponse Discord',i.id); } }
     })());
     return Response.json({type:5,data:{flags:64}});

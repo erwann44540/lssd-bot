@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { recruitmentCommand } from '../src/recruitment.js';
+import { forms } from '../src/recruitment.js';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
@@ -12,7 +12,7 @@ async function signed(payload) {
  return new Request('https://bot.test/interactions',{method:'POST',body,headers:{'x-signature-timestamp':time,'x-signature-ed25519':sig}});
 }
 function database() {
- const db=new DatabaseSync(':memory:'); for(const migration of ['0001_init.sql','0002_ticket_numbers.sql','0003_staff_roles.sql','0004_recruitment.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
+ const db=new DatabaseSync(':memory:'); for(const migration of ['0001_init.sql','0002_ticket_numbers.sql','0003_staff_roles.sql','0004_recruitment.sql','0005_recruitment_drafts.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
  return {prepare(sql){return {bind(...args){const st=db.prepare(sql);return {first:async()=>st.get(...args)??null,run:async()=>({meta:{changes:st.run(...args).changes}})};}}},db};
 }
 test('Signatures : authentique, corps altéré et signature manquante',async()=>{
@@ -45,9 +45,20 @@ test('Cycle complet, confidentialité et contrôles des droits',async()=>{
  async function interact(data){const pending=[];const res=await worker.fetch(await signed({application_id:'app',token:'interaction',guild_id:'guild',member,...data}),env,{waitUntil:p=>pending.push(p)});await Promise.all(pending);return res;}
  const fields=['name','motivation','experience','why'].map(custom_id=>({type:1,components:[{custom_id,value:'Réponse de test'}]}));
  try {
-  const subcommand = recruitmentCommand.options.find(option=>option.name==='candidature');
-  const options = subcommand.options.map(option=>({name:option.name,value:option.name==='age'?25:'Réponse de test'}));
-  await interact({id:'1',type:2,data:{name:'lssd',options:[{name:'candidature',options}]}});
+  let response = await interact({id:'draft',type:3,data:{custom_id:'apply:candidature'}});
+  for (const [step,[,fields]] of forms.candidature.groups.entries()) {
+    const modal = await response.json();
+    assert.equal(modal.type,9);
+    response = await interact({id:'form-'+step,type:5,data:{
+      custom_id:modal.data.custom_id,
+      components:fields.map(([custom_id])=>({component:{custom_id,value:custom_id==='age'?'25':'Réponse de test'}})),
+    }});
+    if (step < 2) {
+      const next = await response.json();
+      response = await interact({id:'next-'+step,type:3,data:{custom_id:next.data.components[0].components[0].custom_id}});
+    }
+  }
+  assert.equal((await response.json()).type,5);
   const staff = {user:{id:'teacher'},roles:['supervisor'],permissions:'0'};
   await interact({id:'notice-public',type:3,channel_id:'ticket1',member:staff,data:{custom_id:'notice:receipt'}});
   assert.equal(DB.db.prepare('SELECT count(*) AS count FROM ticket_notices').get().count,0);
@@ -61,8 +72,8 @@ test('Cycle complet, confidentialité et contrôles des droits',async()=>{
   await interact({id:'refuse-after-accept',type:3,channel_id:'private-thread',member:staff,data:{custom_id:'notice:refuse'}});
   assert.equal(replies().length,2);
   assert.match(replies()[1].body.content,/15 novembre à 21 h au poste de Dillimore/);
-  await interact({id:'ce-closed',type:2,data:{name:'lssd',options:[{name:'sergeant',options:[]}]}});
-  assert.match(calls.at(-1).body.content,/Sergeant sont fermées/);
+  const closed = await interact({id:'ce-closed',type:3,data:{custom_id:'apply:sergeant'}});
+  assert.match((await closed.json()).data.content,/Sergeant sont fermées/);
   const ticket=calls.find(c=>c.url.endsWith('/guilds/guild/channels')).body;
   assert.equal(ticket.name,'dossier-reponse-de-test-0001');
   assert.equal(ticket.permission_overwrites.find(o=>o.id==='guild').deny,'1024');
@@ -109,7 +120,7 @@ test('Numérotation persistante, atomique et indépendante par serveur',async()=
 
 test('Les interactions acceptent seulement les deux serveurs configurés',async()=>{
  const env={GUILD_IDS:'guild,second',DISCORD_PUBLIC_KEY:publicKey};
- for(const [guild_id,type] of [['guild',5],['second',5],['unknown',4]]) {
+ for(const [guild_id,type] of [['guild',9],['second',9],['unknown',4]]) {
   const pending = [];
   const mockEnv = {...env, DB:{prepare:()=>({bind:()=>({first:async()=>({})})})}};
   const savedFetch = globalThis.fetch;
