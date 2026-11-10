@@ -1,4 +1,4 @@
-import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel, recruitmentModal } from './recruitment.js';
+import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel, recruitmentModal, singleRecruitmentModal, singleFormOptions } from './recruitment.js';
 
 const API = 'https://discord.com/api/v10';
 export const P = { view: 1024n, send: 2048n, history: 65536n, embed: 16384n, manageChannels: 16n, manageThreads: 17179869184n, privateThreads: 68719476736n, threadSend: 274877906944n };
@@ -194,7 +194,36 @@ async function formInteraction(env, i) {
   const c = await config(env,i);
   if (!c) return reply('Le recrutement n’est pas configuré.');
   if (kind === 'sergeant' && !c.ce_enabled) return reply('Les candidatures Sergeant sont fermées.');
-  if (action === 'apply') return recruitmentModal(kind,i.id,0);
+  if (action === 'apply') return singleRecruitmentModal(kind,i.id);
+
+  if (action === 'single' || action === 'retry') {
+    const now = Date.now();
+    const owner = [draftId,i.guild_id,i.member.user.id,kind];
+    if (action === 'retry') {
+      const saved = await env.DB.prepare('SELECT answers FROM recruitment_drafts WHERE id=? AND guild_id=? AND user_id=? AND kind=? AND step=-1 AND expires_at>?')
+        .bind(...owner,now).first();
+      return saved ? singleRecruitmentModal(kind,draftId,JSON.parse(saved.answers))
+        : reply('Ce formulaire a expiré. Ouvrez-en un nouveau depuis le panneau.');
+    }
+    const values = Object.fromEntries(i.data.components.map(({component})=>[
+      component.custom_id, component.values?.[0] ?? component.value,
+    ]));
+    let options;
+    try {
+      options = singleFormOptions(kind,values);
+    } catch (error) {
+      await env.DB.prepare('DELETE FROM recruitment_drafts WHERE expires_at<=?').bind(now).run();
+      await env.DB.prepare(`INSERT INTO recruitment_drafts VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET answers=excluded.answers,expires_at=excluded.expires_at
+        WHERE recruitment_drafts.step=-1 AND recruitment_drafts.guild_id=excluded.guild_id
+        AND recruitment_drafts.user_id=excluded.user_id AND recruitment_drafts.kind=excluded.kind`)
+        .bind(...owner,-1,JSON.stringify(values),now+30*60*1000).run();
+      return Response.json({type:4,data:{flags:64,content:error.message,
+        components:[row(button(`retry:${kind}:${draftId}`,'Corriger le formulaire'))],
+      }});
+    }
+    return {config:c,kind,options,draftId};
+  }
 
   const step = Number(rawStep);
   if (!Number.isInteger(step) || step < 0 || step >= forms[kind].groups.length) return reply('Étape inconnue.');
@@ -278,8 +307,8 @@ export default {
     if(!(env.GUILD_IDS??env.GUILD_ID??'').split(',').map(id=>id.trim()).filter(Boolean).includes(i.guild_id) || !i.member) return reply('Ce bot est réservé aux serveurs LSSD configurés.');
     const id = i.data?.custom_id ?? '';
     let completedForm;
-    if ((i.type === 3 && (id === 'apply' || id.startsWith('apply:') || id.startsWith('next:')))
-      || (i.type === 5 && id.startsWith('form:'))) {
+    if ((i.type === 3 && (id === 'apply' || id.startsWith('apply:') || id.startsWith('next:') || id.startsWith('retry:')))
+      || (i.type === 5 && (id.startsWith('form:') || id.startsWith('single:')))) {
       try {
         const result = await formInteraction(env,i);
         if (result instanceof Response) return result;
