@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { forms } from '../src/recruitment.js';
+import { forms, recruitmentModal, recruitmentPanel, noticeControls } from '../src/recruitment.js';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
@@ -131,4 +131,25 @@ test('Les interactions acceptent seulement les deux serveurs configurés',async(
    assert.equal((await r.json()).type,type);
   } finally { globalThis.fetch = savedFetch; }
  }
+});
+
+test('Les trois parcours gardent leurs accents et leurs champs dans les trois parties', async()=>{
+ const expected={
+  candidature:[['name','age','diplomes','experience'],['motivation','why'],['background','fdl']],
+  reintegration:[['name','age','diplomes','experience','ancien_grade'],['motivation','why'],['background','fdl']],
+  sergeant:[['name','age','diplomes','experience'],['motivation','why'],['background','fdl','developpement','repli']],
+ };
+ for (const [kind,sections] of Object.entries(expected)) {
+  assert.equal(forms[kind].groups.length,3);
+  for (const [step,fields] of sections.entries()) {
+   const {data}=await recruitmentModal(kind,'draft',step).json();
+   assert.deepEqual(data.components.map(field=>field.component.custom_id),fields);
+   assert.ok(data.title.length<=45);
+   assert.doesNotMatch(JSON.stringify(data),/Ã|Â[«» ]|â[€‚]|�/);
+   if(step===0) assert.deepEqual(data.components.slice(0,4).map(field=>field.label),['Prénom Nom','Âge','Diplômes','Expériences']);
+  }
+ }
+ assert.deepEqual(recruitmentPanel(true).components[0].components.map(button=>button.label),['Candidature','Réintégration','Corps d’Encadrement · Sergeant']);
+ assert.equal(recruitmentPanel(false).components[0].components.length,2);
+ assert.equal(noticeControls.components[0].components[0].label,'Accusé de réception');
 });

@@ -1,28 +1,27 @@
-const name = ['name', 'PrÃ©nom Nom', 100];
-const age = ['age', 'Ã‚ge'];
-const education = ['diplomes', 'DiplÃ´mes', 450];
-const experience = ['experience', 'ExpÃ©riences', 600];
+const name = ['name', 'Prénom Nom', 100];
+const age = ['age', 'Âge'];
+const education = ['diplomes', 'Diplômes', 450];
+const experience = ['experience', 'Expériences', 600];
 const motivation = ['motivation', 'Motivations', 700];
-const why = ['why', 'Pourquoi vous et pas quelquâ€™un dâ€™autre ?', 600];
+const why = ['why', 'Pourquoi vous et pas quelqu’un d’autre ?', 600];
 const background = ['background', 'Background', 700];
-const fdl = ['fdl', 'Quelles sont vos expÃ©riences dans les FDL ?', 600];
+const fdl = ['fdl', 'Quelles sont vos expériences dans les FDL ?', 600];
 
 export const forms = {
   candidature: { label: 'Candidature', groups: [
-    ['Informations personnelles et expÃ©riences', [name, age, education, experience]],
+    ['Informations personnelles et expériences', [name, age, education, experience]],
     ['Motivation', [motivation, why]],
     ['Partie OOC', [background, fdl]],
   ] },
-  reintegration: { label: 'RÃ©intÃ©gration', groups: [
-    ['Informations personnelles et expÃ©riences', [name, age, education, experience, ['ancien_grade', 'Quel Ã©tait votre ancien grade ?', 100]]],
-    ['Motivation', [motivation, ['why', 'Pourquoi vous reprendre plutÃ´t que recruter un nouveau candidat ?', 600]]],
+  reintegration: { label: 'Réintégration', groups: [
+    ['Informations personnelles et expériences', [name, age, education, experience, ['ancien_grade', 'Quel était votre ancien grade ?', 100]]],
+    ['Motivation', [motivation, ['why', 'Pourquoi vous reprendre plutôt que recruter un nouveau candidat ?', 600]]],
     ['Partie OOC', [background, fdl]],
   ] },
   sergeant: { label: 'Candidature Sergeant', groups: [
-    ['Informations personnelles et expÃ©riences', [name, age, education, experience]],
+    ['Informations personnelles et expériences', [name, age, education, experience]],
     ['Motivation', [motivation, why]],
-    ['Partie OOC', [background, fdl, ['developpement', 'Comment souhaitez-vous aider au dÃ©veloppement de la faction ?', 700]]],
-    ['En cas de refus au poste de Sergeant', [['repli', 'Souhaitez-vous que le dossier soit Ã©tudiÃ© comme candidature classique ?', 3]]],
+    ['Partie OOC', [background, fdl, ['developpement', 'Comment souhaitez-vous aider au développement de la faction ?', 700], ['repli', 'En cas de refus comme Sergeant, souhaitez-vous un examen en candidature classique ?', 3]]],
   ] },
 };
 
@@ -32,8 +31,8 @@ export const recruitmentCommand = {
   options: [
     { type: 1, name: 'candidature_ce', description: 'Ouvrir ou fermer les candidatures Sergeant',
       options: [{ type: 5, name: 'activer', description: 'Oui pour ouvrir les candidatures Sergeant', required: true }] },
-    { type: 1, name: 'rendezvous', description: 'Envoyer une acceptation depuis le fil privÃ© du dossier',
-      options: [{ type: 3, name: 'date_heure', description: 'Date et heure Ã  communiquer au candidat', required: true, min_length: 5, max_length: 100 }] },
+    { type: 1, name: 'rendezvous', description: 'Envoyer une acceptation depuis le fil privé du dossier',
+      options: [{ type: 3, name: 'date_heure', description: 'Date et heure à communiquer au candidat', required: true, min_length: 5, max_length: 100 }] },
   ],
 };
 
@@ -48,7 +47,7 @@ export function formAnswers(kind, options, step) {
       if (name === 'age' ? !Number.isInteger(value) || value < 1 || value > 120
         : typeof value !== 'string' || value.length < 2 || value.length > limit
           || (name === 'repli' && !['oui', 'non'].includes(value))) {
-        throw new Error(`VÃ©rifiez le champ Â« ${label} Â».`);
+        throw new Error(`Vérifiez le champ « ${label} ».`);
       }
       return { name: label, value: name === 'repli' ? (value === 'oui' ? 'Oui' : 'Non') : String(value) };
     }),
@@ -58,30 +57,30 @@ export function formAnswers(kind, options, step) {
 
 const button = (kind, label, style = 1) => ({type:2,custom_id:kind,label,style});
 export function recruitmentPanel(enabled) {
-  const components = [button('apply:candidature', 'Candidature'), button('apply:reintegration', 'RÃ©intÃ©gration')];
-  if (enabled) components.push(button('apply:sergeant', 'Corps dâ€™Encadrement Â· Sergeant'));
+  const components = [button('apply:candidature', 'Candidature'), button('apply:reintegration', 'Réintégration')];
+  if (enabled) components.push(button('apply:sergeant', 'Corps d’Encadrement · Sergeant'));
   return {
     embeds: [{ title: 'Recrutement LSSD', color: 0xc6a34a,
-      description: 'Choisissez votre parcours. Vos rÃ©ponses seront dÃ©posÃ©es dans un dossier privÃ©.' }],
+      description: 'Choisissez votre parcours. Vos réponses seront déposées dans un dossier privé.' }],
     components: [{ type: 1, components }],
     allowed_mentions: { parse: [] },
   };
 }
 
 export const noticeControls = {
-  content: 'DÃ©libÃ©rations â€¢ Instructeurs',
+  content: 'Délibérations • Instructeurs',
   components: [{type:1,components:[
-    button('notice:receipt', 'AccusÃ© de rÃ©ception', 2),
-    button('notice:accept', 'AcceptÃ©', 3),
-    button('notice:refuse', 'RefusÃ©', 4),
+    button('notice:receipt', 'Accusé de réception', 2),
+    button('notice:accept', 'Accepté', 3),
+    button('notice:refuse', 'Refusé', 4),
   ]}],
 };
 
 export function noticeText(kind, candidateId, instructorId, appointment) {
   const bodies = {
-    receipt: 'Nous vous remercions pour votre candidature et accusons rÃ©ception de votre dossier. Vous recevrez une rÃ©ponse Ã  la clÃ´ture des recrutements.',
-    accept: `AprÃ¨s examen de votre candidature, nous vous informons quâ€™elle a Ã©tÃ© retenue pour la suite du recrutement.\n\nVous Ãªtes conviÃ© le ${appointment} au poste de Dillimore pour votre session de recrutement.\n\nTout retard doit Ãªtre signalÃ©. Une absence sera considÃ©rÃ©e comme un abandon et mettra fin Ã  votre recrutement.`,
-    refuse: 'AprÃ¨s examen de votre candidature, nous vous informons quâ€™elle nâ€™a pas Ã©tÃ© retenue. Vous pourrez toutefois postuler lors dâ€™une prochaine session.',
+    receipt: 'Nous vous remercions pour votre candidature et accusons réception de votre dossier. Vous recevrez une réponse à la clôture des recrutements.',
+    accept: `Après examen de votre candidature, nous vous informons qu’elle a été retenue pour la suite du recrutement.\n\nVous êtes convié le ${appointment} au poste de Dillimore pour votre session de recrutement.\n\nTout retard doit être signalé. Une absence sera considérée comme un abandon et mettra fin à votre recrutement.`,
+    refuse: 'Après examen de votre candidature, nous vous informons qu’elle n’a pas été retenue. Vous pourrez toutefois postuler lors d’une prochaine session.',
   };
   return `Bonjour <@${candidateId}>,\n\n${bodies[kind]}\n\nCordialement,\n<@${instructorId}>`;
 }
