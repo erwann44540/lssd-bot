@@ -61,7 +61,7 @@ export function recruitmentPanel(enabled) {
   if (enabled) components.push(button('apply:sergeant', 'Corps d’Encadrement · Sergeant'));
   return {
     embeds: [{ title: 'Recrutement LSSD', color: 0xc6a34a,
-      description: 'Choisissez votre parcours. Vos réponses seront déposées dans un dossier privé.' }],
+      description: 'Choisissez votre parcours. Le formulaire se remplit en trois étapes. Après chaque étape, cliquez sur Envoyer. Le bouton Suivant apparaît jusqu’au dépôt final.' }],
     components: [{ type: 1, components }],
     allowed_mentions: { parse: [] },
   };
@@ -85,25 +85,47 @@ export function noticeText(kind, candidateId, instructorId, appointment) {
   return `Bonjour <@${candidateId}>,\n\n${bodies[kind]}\n\nCordialement,\n<@${instructorId}>`;
 }
 
+const fieldExamples = {
+  name: 'Prénom et nom de votre personnage',
+  age: 'Âge de votre personnage en années',
+  diplomes: 'Diplômes de votre personnage, ou « Aucun »',
+  experience: 'Postes occupés et missions réalisées par votre personnage',
+  ancien_grade: 'Votre dernier grade au LSSD',
+  background: 'Votre parcours en jeu et le contexte de votre personnage',
+  fdl: 'Factions, grades et missions en RP, ou « Aucune »',
+};
+
 export function recruitmentModal(kind, draftId, step) {
   const {groups} = forms[kind];
-  const [title, fields] = groups[step];
+  const [, fields] = groups[step];
+  const title = ['Identité et parcours RP','Motivation','Expérience hors personnage'][step];
   const guidance = step+1 === groups.length
     ? 'Cliquez sur Envoyer pour déposer votre dossier.'
-    : 'Cliquez sur Envoyer, puis sur Suivant pour continuer.';
+    : 'Envoyer enregistre cette étape. Le bouton Suivant apparaît ensuite.';
+  const guidanceIndex = fields.at(-1)[0] === 'repli' ? fields.length-2 : fields.length-1;
+
   return Response.json({type:9,data:{
     custom_id: `form:${kind}:${draftId}:${step}`,
-    title: `${step+1}/${groups.length} · ${step === 0 ? 'Infos personnelles et expériences' : title}`,
-    components: fields.map(([custom_id,label,limit], index) => ({
-      type:18,
-      label: label.length > 45 ? (custom_id === 'fdl' ? 'Expériences dans les FDL' : custom_id === 'why' ? 'Pourquoi vous reprendre ?' : custom_id === 'repli' ? 'Réexamen en candidature classique' : 'Développement de la faction') : label,
-      ...(label.length > 45 ? {description:label} : index === 0 ? {description:guidance} : {}),
-      component: custom_id === 'repli'
-        ? {type:3,custom_id,placeholder:'En cas de refus comme Sergeant',options:[
-          {label:'Oui',value:'oui'}, {label:'Non',value:'non'},
-        ],required:true}
-        : {type:4,custom_id,style:limit > 100 ? 2 : 1,required:true,
-          min_length:custom_id === 'age' ? 1 : 2,max_length:limit ?? 3},
-    })),
+    title: `${step+1}/${groups.length} · ${title}`,
+    components: fields.map(([custom_id,label,limit], index) => {
+      const shortLabels = {
+        fdl: 'Expériences dans les FDL',
+        why: 'Pourquoi vous reprendre ?',
+        repli: 'Réexamen en candidature classique',
+        developpement: 'Développement de la faction',
+      };
+      const shortLabel = label.length > 45 ? shortLabels[custom_id] : label;
+      const description = index === guidanceIndex ? guidance : label.length > 45 ? label : undefined;
+      const placeholder = fieldExamples[custom_id] ?? (label.length > 45 && index === guidanceIndex ? label : undefined);
+      return {
+        type:18, label:shortLabel, description,
+        component: custom_id === 'repli'
+          ? {type:3,custom_id,placeholder:'En cas de refus comme Sergeant',options:[
+            {label:'Oui',value:'oui'}, {label:'Non',value:'non'},
+          ],required:true}
+          : {type:4,custom_id,placeholder,style:limit > 100 ? 2 : 1,required:true,
+            min_length:custom_id === 'age' ? 1 : 2,max_length:limit ?? 3},
+      };
+    }),
   }});
 }
