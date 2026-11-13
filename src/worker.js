@@ -1,4 +1,4 @@
-import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel, recruitmentModal } from './recruitment.js';
+import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel, recruitmentModal, recruitmentOpen, recruitmentSwitches } from './recruitment.js';
 
 const API = 'https://discord.com/api/v10';
 export const P = { view: 1024n, send: 2048n, history: 65536n, embed: 16384n, manageChannels: 16n, manageThreads: 17179869184n, privateThreads: 68719476736n, threadSend: 274877906944n };
@@ -86,14 +86,14 @@ async function setup(env,i) {
   } else category=await api(env,`/guilds/${i.guild_id}/channels`,'POST',{name:'⭐ Recrutements ⭐',type:4,permission_overwrites:overwrites});
   await env.DB.prepare('INSERT INTO config(guild_id,role_id,category_id) VALUES (?,?,?) ON CONFLICT(guild_id) DO UPDATE SET role_id=excluded.role_id,category_id=excluded.category_id').bind(i.guild_id,role.id,category.id).run();
   const message = c?.panel_channel_id === panel.id && c.panel_message_id
-    ? await api(env,`/channels/${panel.id}/messages/${c.panel_message_id}`, 'PATCH', recruitmentPanel(c.ce_enabled))
-    : await api(env,`/channels/${panel.id}/messages`, 'POST', recruitmentPanel(c?.ce_enabled));
+    ? await api(env,`/channels/${panel.id}/messages/${c.panel_message_id}`, 'PATCH', recruitmentPanel(c))
+    : await api(env,`/channels/${panel.id}/messages`, 'POST', recruitmentPanel(c));
   await env.DB.prepare('UPDATE config SET panel_channel_id=?,panel_message_id=? WHERE guild_id=?')
     .bind(panel.id,message.id,i.guild_id).run();
   return 'Panneau publié et catégorie privée configurée. Les changements de rôle s’appliquent aux nouveaux dossiers ; vérifiez les anciens dossiers avant de retirer un rôle.';
 }
 async function apply(env,i,c,kind,options) {
-  if (kind === 'sergeant' && !c.ce_enabled) throw new Error('Les candidatures Sergeant sont fermées.');
+  if (!recruitmentOpen(c,kind ?? 'candidature')) throw new Error('Ce parcours est fermé.');
   const a = kind ? formAnswers(kind, options) : answers(i.data);
   const label = kind ? forms[kind].label : 'Candidature';
   const user=i.member.user.id;
@@ -159,14 +159,23 @@ async function sendNotice(env, i, ticket, kind, appointment) {
 async function recruitmentAction(env,i,c) {
   if (i.type === 2 && i.data.name === 'lssd') {
     const action = i.data.options?.[0];
-    if (action?.name === 'candidature_ce') {
+    if (action && Object.hasOwn(recruitmentSwitches,action.name)) {
+      const {column,label} = recruitmentSwitches[action.name];
       if (!admin(i)) throw new Error('Configuration réservée aux administrateurs.');
       const enabled = action.options?.find(option=>option.name==='activer')?.value;
       if (typeof enabled !== 'boolean') throw new Error('Choisissez true ou false.');
       if (!c.panel_channel_id || !c.panel_message_id) throw new Error('Publiez le panneau avec /lssd-config.');
-      await env.DB.prepare('UPDATE config SET ce_enabled=? WHERE guild_id=?').bind(Number(enabled),i.guild_id).run();
-      await api(env,`/channels/${c.panel_channel_id}/messages/${c.panel_message_id}`,'PATCH',recruitmentPanel(enabled));
-      return enabled ? 'Candidatures Sergeant ouvertes.' : 'Candidatures Sergeant fermées.';
+      await env.DB.prepare(`UPDATE config SET ${column}=? WHERE guild_id=?`).bind(Number(enabled),i.guild_id).run();
+      let current = await config(env,i);
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await api(env,`/channels/${current.panel_channel_id}/messages/${current.panel_message_id}`,'PATCH',recruitmentPanel(current));
+        const latest = await config(env,i);
+        if (Object.values(recruitmentSwitches).every(({column}) => current[column] === latest[column])) {
+          return `${label} · ${enabled ? '🟢 ON' : '🔴 OFF'}`;
+        }
+        current = latest;
+      }
+      throw new Error('Plusieurs changements simultanés. Relancez la commande pour actualiser le panneau.');
     }
     if (action?.name === 'rendezvous') {
       const ticket = await privateTicket(env,i,c);
@@ -193,7 +202,7 @@ async function formInteraction(env, i) {
   if (!Object.hasOwn(forms,kind)) return reply('Parcours inconnu.');
   const c = await config(env,i);
   if (!c) return reply('Le recrutement n’est pas configuré.');
-  if (kind === 'sergeant' && !c.ce_enabled) return reply('Les candidatures Sergeant sont fermées.');
+  if (!recruitmentOpen(c,kind)) return reply('Ce parcours est fermé.');
   if (action === 'apply') return recruitmentModal(kind,i.id,0);
 
   const step = Number(rawStep);

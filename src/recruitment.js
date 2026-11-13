@@ -25,12 +25,25 @@ export const forms = {
   ] },
 };
 
+export const recruitmentSwitches = {
+  candidature_bcsd: {kind:'candidature', column:'bcsd_enabled', label:'Recrutement BCSD', defaultEnabled:true},
+  reintegration: {kind:'reintegration', column:'reintegration_enabled', label:'Réintégration', defaultEnabled:true},
+  candidature_ce: {kind:'sergeant', column:'ce_enabled', label:'OOC · Recrutement Sergeant', defaultEnabled:false},
+};
+
+export function recruitmentOpen(config, kind) {
+  const setting = Object.values(recruitmentSwitches).find(entry => entry.kind === kind);
+  return Boolean(config?.[setting.column] ?? setting.defaultEnabled);
+}
+
 export const recruitmentCommand = {
   name: 'lssd',
   description: 'Recrutement LSSD',
   options: [
-    { type: 1, name: 'candidature_ce', description: 'Ouvrir ou fermer les candidatures Sergeant',
-      options: [{ type: 5, name: 'activer', description: 'Oui pour ouvrir les candidatures Sergeant', required: true }] },
+    ...Object.entries(recruitmentSwitches).map(([name, {label}]) => ({
+      type: 1, name, description: `Ouvrir ou fermer le parcours ${label}`,
+      options: [{ type: 5, name: 'activer', description: 'Oui pour ouvrir ce parcours', required: true }],
+    })),
     { type: 1, name: 'rendezvous', description: 'Envoyer une acceptation depuis le fil privé du dossier',
       options: [{ type: 3, name: 'date_heure', description: 'Date et heure à communiquer au candidat', required: true, min_length: 5, max_length: 100 }] },
   ],
@@ -56,14 +69,19 @@ export function formAnswers(kind, options, step) {
 }
 
 const button = (kind, label, style = 1) => ({type:2,custom_id:kind,label,style});
-export function recruitmentPanel(enabled) {
-  const components = [button('apply:candidature', 'Candidature'), button('apply:reintegration', 'Réintégration')];
-  if (enabled) components.push(button('apply:sergeant', 'Corps d’Encadrement · Sergeant'));
+export function recruitmentPanel(config) {
+  const embeds = [];
+  const buttons = [];
+  for (const {kind,label} of Object.values(recruitmentSwitches)) {
+    const open = recruitmentOpen(config,kind);
+    embeds.push({description:`${open ? '🟢' : '🔴'} **${label}** · **${open ? 'ON' : 'OFF'}**`, color:open ? 0x2ecc71 : 0xe74c3c});
+    if (open) buttons.push(button(`apply:${kind}`,kind === 'sergeant' ? 'OOC · Sergeant' : forms[kind].label));
+  }
   return {
-    embeds: [{ title: 'Recrutement LSSD', color: 0xc6a34a,
-      description: 'Choisissez votre parcours. Le formulaire se remplit en trois étapes. Après chaque étape, cliquez sur Envoyer. Le bouton Suivant apparaît jusqu’au dépôt final.' }],
-    components: [{ type: 1, components }],
-    allowed_mentions: { parse: [] },
+    content: '**État des recrutements**',
+    embeds,
+    components: buttons.length ? [{type:1,components:buttons}] : [],
+    allowed_mentions: {parse:[]},
   };
 }
 
