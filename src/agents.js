@@ -51,7 +51,7 @@ const reference = id => BigInt(id).toString(36).toUpperCase();
 
 function history(entries, format) {
   const sorted = [...entries].sort((a,b)=>b.date.split('/').reverse().join('').localeCompare(a.date.split('/').reverse().join('')));
-  return sorted.map(format).join('\n') || 'Aucune';
+  return sorted.map(item=>`${format(item)}  \`${reference(item.id)}\``).join('\n') || 'Aucune';
 }
 
 const sheriffLogo = 'https://cdn.discordapp.com/avatars/1566193416906481914/b455f26f2d122b5efddf180caecec233.png?size=256';
