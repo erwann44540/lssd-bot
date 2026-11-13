@@ -88,12 +88,14 @@ export function recruitmentPanel(config) {
 }
 
 export function recruitmentStatus(config) {
-  const description = Object.values(recruitmentSwitches).map(({kind,label}) => {
-    const status = recruitmentOpen(config,kind) ? '🟢 **ON**' : '🔴 **OFF**';
-    return `**${label}**　${status}`;
-  }).join('\n');
+  const lines = Object.values(recruitmentSwitches).map(({kind,label}) => {
+    const open = recruitmentOpen(config,kind);
+    const status = open ? '\x1b[1;32mON\x1b[0m' : '\x1b[1;31mOFF\x1b[0m';
+    return `${open ? '🟢' : '🔴'}  ${label.padEnd(28)}  ${status}`;
+  });
   return {
-    embeds: [{title:'État des recrutements',description,color:0x34465a}],
+    content: ['**État des recrutements**', '```ansi', ...lines, '```'].join('\n'),
+    embeds: [],
     allowed_mentions: {parse:[]},
   };
 }

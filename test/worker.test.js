@@ -153,8 +153,10 @@ test('Les trois parcours gardent leurs accents et leurs champs dans les trois pa
  assert.equal(recruitmentPanel({ce_enabled:0}).components[0].components.length,2);
  const closed = recruitmentPanel({bcsd_enabled:0,reintegration_enabled:0,ce_enabled:0});
  assert.deepEqual(closed.components,[]);
- assert.equal((recruitmentStatus({bcsd_enabled:0,reintegration_enabled:0,ce_enabled:0}).embeds[0].description.match(/🔴/g) ?? []).length,3);
+ assert.equal((recruitmentStatus({bcsd_enabled:0,reintegration_enabled:0,ce_enabled:0}).content.match(/🔴/g) ?? []).length,3);
  const sergeant = recruitmentPanel({bcsd_enabled:0,reintegration_enabled:0,ce_enabled:1});
+ assert.match(recruitmentStatus({ce_enabled:1}).content,/\x1b\[1;32mON/);
+ assert.match(recruitmentStatus({ce_enabled:0}).content,/\x1b\[1;31mOFF/);
  assert.deepEqual(sergeant.components[0].components.map(button=>button.custom_id),['apply:sergeant']);
  assert.equal(noticeControls.components[0].components[0].label,'Accusé de réception');
 });
