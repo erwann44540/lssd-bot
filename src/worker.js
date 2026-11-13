@@ -1,4 +1,4 @@
-import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel, recruitmentModal, recruitmentOpen, recruitmentSwitches } from './recruitment.js';
+import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel, recruitmentStatus, recruitmentModal, recruitmentOpen, recruitmentSwitches } from './recruitment.js';
 
 const API = 'https://discord.com/api/v10';
 export const P = { view: 1024n, send: 2048n, history: 65536n, embed: 16384n, manageChannels: 16n, manageThreads: 17179869184n, privateThreads: 68719476736n, threadSend: 274877906944n };
@@ -88,8 +88,10 @@ async function setup(env,i) {
   const message = c?.panel_channel_id === panel.id && c.panel_message_id
     ? await api(env,`/channels/${panel.id}/messages/${c.panel_message_id}`, 'PATCH', recruitmentPanel(c))
     : await api(env,`/channels/${panel.id}/messages`, 'POST', recruitmentPanel(c));
-  await env.DB.prepare('UPDATE config SET panel_channel_id=?,panel_message_id=? WHERE guild_id=?')
-    .bind(panel.id,message.id,i.guild_id).run();
+  const statusMessageId = c?.panel_channel_id === panel.id ? c.status_message_id : null;
+  await env.DB.prepare('UPDATE config SET panel_channel_id=?,panel_message_id=?,status_message_id=? WHERE guild_id=?')
+    .bind(panel.id,message.id,statusMessageId ?? null,i.guild_id).run();
+  await updateRecruitmentStatus(env, i.guild_id, {...c, panel_channel_id:panel.id, status_message_id:statusMessageId, panel_message_id:message.id});
   return 'Panneau publié et catégorie privée configurée. Les changements de rôle s’appliquent aux nouveaux dossiers ; vérifiez les anciens dossiers avant de retirer un rôle.';
 }
 async function apply(env,i,c,kind,options) {
@@ -156,6 +158,23 @@ async function sendNotice(env, i, ticket, kind, appointment) {
   return 'Message envoyé dans le dossier du candidat.';
 }
 
+async function updateRecruitmentStatus(env, guildId, current) {
+  const path = `/channels/${current.panel_channel_id}/messages`;
+  if (current.status_message_id) {
+    try {
+      await api(env,`${path}/${current.status_message_id}`,'PATCH',recruitmentStatus(current));
+      return;
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
+  }
+  const message = await api(env,path,'POST',{
+    ...recruitmentStatus(current), nonce:current.panel_message_id, enforce_nonce:true,
+  });
+  await env.DB.prepare('UPDATE config SET status_message_id=? WHERE guild_id=? AND panel_channel_id=?')
+    .bind(message.id,guildId,current.panel_channel_id).run();
+}
+
 async function recruitmentAction(env,i,c) {
   if (i.type === 2 && i.data.name === 'lssd') {
     const action = i.data.options?.[0];
@@ -169,6 +188,7 @@ async function recruitmentAction(env,i,c) {
       let current = await config(env,i);
       for (let attempt = 0; attempt < 4; attempt++) {
         await api(env,`/channels/${current.panel_channel_id}/messages/${current.panel_message_id}`,'PATCH',recruitmentPanel(current));
+        await updateRecruitmentStatus(env,i.guild_id,current);
         const latest = await config(env,i);
         if (Object.values(recruitmentSwitches).every(({column}) => current[column] === latest[column])) {
           return `${label} · ${enabled ? '🟢 ON' : '🔴 OFF'}`;

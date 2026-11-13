@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { forms, recruitmentModal, recruitmentPanel, noticeControls } from '../src/recruitment.js';
+import { forms, recruitmentModal, recruitmentPanel, recruitmentStatus, noticeControls } from '../src/recruitment.js';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
@@ -12,7 +12,7 @@ async function signed(payload) {
  return new Request('https://bot.test/interactions',{method:'POST',body,headers:{'x-signature-timestamp':time,'x-signature-ed25519':sig}});
 }
 function database() {
- const db=new DatabaseSync(':memory:'); for(const migration of ['0001_init.sql','0002_ticket_numbers.sql','0003_staff_roles.sql','0004_recruitment.sql','0005_recruitment_drafts.sql','0006_recruitment_status.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
+ const db=new DatabaseSync(':memory:'); for(const migration of ['0001_init.sql','0002_ticket_numbers.sql','0003_staff_roles.sql','0004_recruitment.sql','0005_recruitment_drafts.sql','0006_recruitment_status.sql','0007_recruitment_messages.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
  return {prepare(sql){return {bind(...args){const st=db.prepare(sql);return {first:async()=>st.get(...args)??null,run:async()=>({meta:{changes:st.run(...args).changes}})};}}},db};
 }
 test('Signatures : authentique, corps altéré et signature manquante',async()=>{
@@ -153,7 +153,7 @@ test('Les trois parcours gardent leurs accents et leurs champs dans les trois pa
  assert.equal(recruitmentPanel({ce_enabled:0}).components[0].components.length,2);
  const closed = recruitmentPanel({bcsd_enabled:0,reintegration_enabled:0,ce_enabled:0});
  assert.deepEqual(closed.components,[]);
- assert.ok(closed.embeds.every(embed=>embed.color===0xe74c3c));
+ assert.equal((recruitmentStatus({bcsd_enabled:0,reintegration_enabled:0,ce_enabled:0}).embeds[0].description.match(/🔴/g) ?? []).length,3);
  const sergeant = recruitmentPanel({bcsd_enabled:0,reintegration_enabled:0,ce_enabled:1});
  assert.deepEqual(sergeant.components[0].components.map(button=>button.custom_id),['apply:sergeant']);
  assert.equal(noticeControls.components[0].components[0].label,'Accusé de réception');

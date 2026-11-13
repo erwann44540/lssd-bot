@@ -70,17 +70,30 @@ export function formAnswers(kind, options, step) {
 
 const button = (kind, label, style = 1) => ({type:2,custom_id:kind,label,style});
 export function recruitmentPanel(config) {
-  const embeds = [];
-  const buttons = [];
-  for (const {kind,label} of Object.values(recruitmentSwitches)) {
-    const open = recruitmentOpen(config,kind);
-    embeds.push({description:`${open ? '🟢' : '🔴'} **${label}** · **${open ? 'ON' : 'OFF'}**`, color:open ? 0x2ecc71 : 0xe74c3c});
-    if (open) buttons.push(button(`apply:${kind}`,kind === 'sergeant' ? 'OOC · Sergeant' : forms[kind].label));
-  }
+  const buttons = Object.values(recruitmentSwitches)
+    .filter(({kind}) => recruitmentOpen(config,kind))
+    .map(({kind}) => button(`apply:${kind}`, kind === 'sergeant' ? 'OOC · Sergeant' : forms[kind].label));
   return {
-    content: '**État des recrutements**',
-    embeds,
+    content: '',
+    embeds: [{
+      title: 'Recrutement LSSD',
+      description: buttons.length
+        ? 'Sélectionnez un parcours pour ouvrir son formulaire. Votre dossier est transmis à la fin de la troisième étape.'
+        : 'Les candidatures sont actuellement fermées.',
+      color: 0xc6a34a,
+    }],
     components: buttons.length ? [{type:1,components:buttons}] : [],
+    allowed_mentions: {parse:[]},
+  };
+}
+
+export function recruitmentStatus(config) {
+  const description = Object.values(recruitmentSwitches).map(({kind,label}) => {
+    const status = recruitmentOpen(config,kind) ? '🟢 **ON**' : '🔴 **OFF**';
+    return `**${label}**　${status}`;
+  }).join('\n');
+  return {
+    embeds: [{title:'État des recrutements',description,color:0x34465a}],
     allowed_mentions: {parse:[]},
   };
 }
