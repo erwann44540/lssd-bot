@@ -45,7 +45,7 @@ test('Fiche, historique, auteur de sanction et permissions',async()=>{
     await run('promotion_ajouter',{date:'13/11/2026',grade:'Deputy II',type:'promotion'});
     await run('sanction_ajouter',{date:'13/11/2026',raison:'Rapport incomplet'},encadrement);
     assert.match(published.embeds[1].description,/Promu Deputy II le 13\/11\/2026/);
-    assert.match(published.embeds[2].description,/Rapport incomplet — PAR Camille Dupont/);
+    assert.equal(published.embeds[2].description,'**13/11/2026**  Rapport incomplet\n*Par Camille Dupont*');
     const ref=JSON.parse(db.prepare('SELECT data FROM agent_records').get().data).sanctions[0].id;
     await assert.rejects(run('sanction_supprimer',{reference:ref},encadrement),/rôle/);
     await run('sanction_supprimer',{reference:ref});

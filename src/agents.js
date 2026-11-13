@@ -64,7 +64,7 @@ export function card(agent) {
     {name:'Divisions et brigades',value:agent.divisions.map(value=>'• '+display(value)).join('\n') || 'Aucune'},
   ];
   const promotions = history(agent.promotions,item=>`• ${item.type==='promotion'?'Promu':'Rétrogradé'} ${display(item.grade)} le ${item.date}`);
-  const sanctions = history(agent.sanctions,item=>`• ${item.date} — ${display(item.raison)} — PAR ${display(item.auteur)}`);
+  const sanctions = history(agent.sanctions,item=>`**${item.date}**  ${display(item.raison)}\n*Par ${display(item.auteur)}*`);
   const title = `Fiche agent · ${display(agent.prenom)} ${display(agent.nom)}`;
   const size = title.length + promotions.length + sanctions.length + identity.reduce((n,f)=>n+f.name.length+f.value.length,0);
   if (title.length > 256 || promotions.length > 4096 || sanctions.length > 4096 || size > 5900 || identity.some(f=>f.value.length>1024)) {
