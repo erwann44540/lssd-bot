@@ -47,12 +47,16 @@ function validDate(value) {
   return value;
 }
 
+const reference = id => BigInt(id).toString(36).toUpperCase();
+
 function history(entries, format) {
   const sorted = [...entries].sort((a,b)=>b.date.split('/').reverse().join('').localeCompare(a.date.split('/').reverse().join('')));
-  return sorted.map(item=>`${format(item)} · \`${item.id}\``).join('\n') || 'Aucune';
+  return sorted.map(item=>`${format(item)} · \`${reference(item.id)}\``).join('\n') || 'Aucune';
 }
 
-function card(agent) {
+const sheriffLogo = 'https://cdn.discordapp.com/avatars/1566193416906481914/b455f26f2d122b5efddf180caecec233.png?size=256';
+
+export function card(agent) {
   const identity = [
     {name:'Matricule',value:display(agent.matricule),inline:true},
     {name:'Grade',value:display(agent.grade),inline:true},
@@ -67,9 +71,9 @@ function card(agent) {
     throw new Error('La fiche dépasse la taille maximale d’un message Discord.');
   }
   return {allowed_mentions:{parse:[]},embeds:[
-    {title,color:0xc6a34a,fields:identity},
-    {title:'Promotions et rétrogradations',description:promotions,color:0x34465a},
-    {title:'Sanctions',description:sanctions,color:0x34465a},
+    {title,author:{name:'Los Santos County Sheriff’s Department',icon_url:sheriffLogo},thumbnail:{url:sheriffLogo},color:0xd4af37,fields:identity},
+    {title:'📈 Promotions et rétrogradations',description:promotions,color:0x2ecc71},
+    {title:'⚖️ Sanctions',description:sanctions,color:0xe74c3c},
   ]};
 }
 
@@ -100,7 +104,8 @@ function update(agent, action, values, i) {
   } else {
     const list = action.startsWith('promotion_') ? agent.promotions : agent.sanctions;
     if (action.endsWith('_supprimer')) {
-      const index = list.findIndex(item=>item.id===clean(values.reference));
+      const input = clean(values.reference).toUpperCase();
+      const index = list.findIndex(item=>item.id===input || reference(item.id)===input);
       if (index<0) throw new Error('Référence introuvable sur cette fiche.');
       list.splice(index,1);
     } else if (!list.some(item=>item.id===i.id)) {
