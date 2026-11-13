@@ -26,6 +26,7 @@ export async function logAgentCommand(env, interaction, api, success) {
       timestamp:new Date().toISOString(),
     }],
     allowed_mentions:{parse:[]},
-    nonce:interaction.id,enforce_nonce:true,
+    // Discord deduplicates nonces per author, including across channels.
+    nonce:`log-${interaction.id}`,enforce_nonce:true,
   });
 }
