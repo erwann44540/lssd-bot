@@ -12,7 +12,7 @@ const identity = required => [
   field('divisions','Divisions séparées par des virgules',false,500),
 ];
 const date = field('date','Date au format jj/mm/aaaa',true,10);
-const entry = field('reference','Référence affichée sur la fiche',true,25);
+const entry = field('reference','Date de l’entrée (jj/mm/aaaa) ou référence',true,25);
 const sub = (name, description, ...options) => ({type:1,name,description,options});
 
 export const agentCommand = {
@@ -51,7 +51,7 @@ const reference = id => BigInt(id).toString(36).toUpperCase();
 
 function history(entries, format) {
   const sorted = [...entries].sort((a,b)=>b.date.split('/').reverse().join('').localeCompare(a.date.split('/').reverse().join('')));
-  return sorted.map(item=>`${format(item)} · \`${reference(item.id)}\``).join('\n') || 'Aucune';
+  return sorted.map(format).join('\n') || 'Aucune';
 }
 
 const sheriffLogo = 'https://cdn.discordapp.com/avatars/1566193416906481914/b455f26f2d122b5efddf180caecec233.png?size=256';
@@ -105,7 +105,12 @@ function update(agent, action, values, i) {
     const list = action.startsWith('promotion_') ? agent.promotions : agent.sanctions;
     if (action.endsWith('_supprimer')) {
       const input = clean(values.reference).toUpperCase();
-      const index = list.findIndex(item=>item.id===input || reference(item.id)===input);
+      const matches = list.filter(item=>item.date===input || item.id===input || reference(item.id)===input);
+      if (matches.length>1) {
+        const choices = matches.map(item=>`\`${reference(item.id)}\` — ${display(item.grade ?? item.raison).slice(0,65)}`);
+        throw new Error(`Plusieurs entrées correspondent. Relancez avec une référence.\n${choices.join('\n')}`.slice(0,2000));
+      }
+      const index = list.indexOf(matches[0]);
       if (index<0) throw new Error('Référence introuvable sur cette fiche.');
       list.splice(index,1);
     } else if (!list.some(item=>item.id===i.id)) {
