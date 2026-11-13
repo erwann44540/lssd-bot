@@ -1,3 +1,4 @@
+import { logAgentCommand } from './agent-logs.js';
 import { agentGuild, handleAgent } from './agents.js';
 import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel, recruitmentStatus, recruitmentModal, recruitmentOpen, recruitmentSwitches } from './recruitment.js';
 
@@ -307,8 +308,18 @@ export default {
     if(i.type===1) return Response.json({type:1});
     if (i.guild_id === agentGuild && i.member && i.type === 2 && i.data?.name === 'fiche') {
       ctx.waitUntil((async()=>{
-        try { await finish(env,i,await handleAgent(env,i,api)); }
-        catch (error) { await finish(env,i,error.message); }
+        let result;
+        let success = false;
+        try {
+          result = await handleAgent(env,i,api);
+          success = true;
+        } catch (error) {
+          result = error.message;
+        }
+        const logging = logAgentCommand(env,i,api,success).catch(error=>{
+          console.error('Journal des fiches indisponible',i.id,error.message);
+        });
+        await Promise.all([finish(env,i,result),logging]);
       })());
       return Response.json({type:5,data:{flags:64}});
     }
