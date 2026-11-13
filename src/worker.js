@@ -1,3 +1,4 @@
+import { agentGuild, handleAgent } from './agents.js';
 import { forms, formAnswers, noticeControls, noticeText, recruitmentPanel, recruitmentStatus, recruitmentModal, recruitmentOpen, recruitmentSwitches } from './recruitment.js';
 
 const API = 'https://discord.com/api/v10';
@@ -304,6 +305,13 @@ export default {
     if(!await verify(request,body,env.DISCORD_PUBLIC_KEY)) return new Response('Invalid signature',{status:401});
     let i; try { i=JSON.parse(body); } catch { return new Response('Invalid JSON',{status:400}); }
     if(i.type===1) return Response.json({type:1});
+    if (i.guild_id === agentGuild && i.member && i.type === 2 && i.data?.name === 'fiche') {
+      ctx.waitUntil((async()=>{
+        try { await finish(env,i,await handleAgent(env,i,api)); }
+        catch (error) { await finish(env,i,error.message); }
+      })());
+      return Response.json({type:5,data:{flags:64}});
+    }
     if(!(env.GUILD_IDS??env.GUILD_ID??'').split(',').map(id=>id.trim()).filter(Boolean).includes(i.guild_id) || !i.member) return reply('Ce bot est réservé aux serveurs LSSD configurés.');
     const id = i.data?.custom_id ?? '';
     let completedForm;

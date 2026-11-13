@@ -1,0 +1,45 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+import {handleAgent} from '../src/agents.js';
+
+test('Fiche, historique, auteur de sanction et permissions',async()=>{
+  const db=new DatabaseSync(':memory:');
+  db.exec(readFileSync(new URL('../migrations/0008_agents.sql',import.meta.url),'utf8'));
+  const env={AGENT_CHANNEL_ID:'registre',DB:{prepare(sql){
+    const statement=db.prepare(sql);
+    return {bind(...args){return {
+      first:async()=>statement.get(...args),
+      run:async()=>({meta:{changes:statement.run(...args).changes}}),
+    };}};
+  }}};
+  let published;
+  const api=async(_env,_path,method,payload)=>{
+    published=method==='DELETE'?null:payload;
+    return {id:'fiche'};
+  };
+  const direction='1566200842451947640';
+  const encadrement='1566200848415989780';
+  let id=0;
+  function run(name,values,role=direction) {
+    return handleAgent(env,{id:String(++id),member:{roles:[role],nick:'Camille Dupont',user:{username:'camille'}},
+      data:{options:[{name,options:Object.entries({matricule:'A01',...values}).map(([name,value])=>({name,value}))}]}},api);
+  }
+  try {
+    await run('creer',{prenom:'Alex',nom:'Martin',grade:'Deputy I',poste:'Dillimore',divisions:'Patrouille'});
+    await assert.rejects(run('editer',{grade:'Sheriff'},encadrement),/rôle/);
+    await run('brigade_ajouter',{brigade:'Intervention'},encadrement);
+    await assert.rejects(run('promotion_ajouter',{date:'31/02/2026',grade:'Deputy II',type:'promotion'}),/date valide/);
+    await run('promotion_ajouter',{date:'13/11/2026',grade:'Deputy II',type:'promotion'});
+    await run('sanction_ajouter',{date:'13/11/2026',raison:'Rapport incomplet'},encadrement);
+    assert.match(published.embeds[1].description,/Promu Deputy II le 13\/11\/2026/);
+    assert.match(published.embeds[2].description,/Rapport incomplet — PAR Camille Dupont/);
+    const ref=JSON.parse(db.prepare('SELECT data FROM agent_records').get().data).sanctions[0].id;
+    await assert.rejects(run('sanction_supprimer',{reference:ref},encadrement),/rôle/);
+    await run('sanction_supprimer',{reference:ref});
+    assert.equal(published.embeds[2].description,'Aucune');
+    await run('supprimer',{confirmer:true});
+    assert.equal(published,null);
+  } finally {db.close();}
+});
