@@ -117,20 +117,70 @@ function update(agent, action, values, i) {
   }
 }
 
+const agentCategory = '1570926748361818233';
+
+function channelName(agent) {
+  return `${agent.prenom}-${agent.nom}`.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,100).replace(/-$/,'') || 'fiche-agent';
+}
+
+async function provisionChannel(env, record, agent, api) {
+  const lease = Date.now()+60000;
+  const claimed = await env.DB.prepare(`UPDATE agent_records SET provisioning_until=?
+    WHERE id=? AND channel_id IS NULL AND deleted=0 AND provisioning_until<=?`)
+    .bind(lease,record.id,Date.now()).run();
+  if (!claimed.meta.changes) throw new Error('Le salon est en cours de création. Réessayez dans un instant.');
+  try {
+    const category = await api(env,`/channels/${agentCategory}`);
+    if (category.guild_id !== agentGuild || category.type !== 4) throw new Error('Catégorie Fiche Agents invalide.');
+    const topic = `Fiche agent · ${record.id}`;
+    const channels = await api(env,`/guilds/${agentGuild}/channels`);
+    let channel = channels.find(c=>c.type===0 && c.parent_id===agentCategory && c.topic===topic);
+    if (!channel) {
+      const bot = await api(env,'/users/@me');
+      channel = await api(env,`/guilds/${agentGuild}/channels`,'POST',{
+        name:channelName(agent),type:0,parent_id:agentCategory,topic,
+        permission_overwrites:[
+          {id:agentGuild,type:0,deny:'1024'},
+          {id:direction,type:0,allow:'66560'},
+          {id:encadrement,type:0,allow:'66560'},
+          {id:bot.id,type:1,allow:'84992'},
+        ],
+      });
+    }
+    await env.DB.prepare('UPDATE agent_records SET channel_id=?,message_id=NULL WHERE id=? AND provisioning_until=?')
+      .bind(channel.id,record.id,lease).run();
+  } finally {
+    await env.DB.prepare('UPDATE agent_records SET provisioning_until=0 WHERE id=? AND provisioning_until=?')
+      .bind(record.id,lease).run();
+  }
+}
+
 async function publish(env, id, api) {
-  const path = `/channels/${env.AGENT_CHANNEL_ID}/messages`;
   for (let attempt=0; attempt<4; attempt++) {
     const record = await env.DB.prepare('SELECT * FROM agent_records WHERE id=?').bind(id).first();
     if (!record) return;
     if (record.deleted) {
-      if (record.message_id) {
-        try { await api(env,`${path}/${record.message_id}`,'DELETE'); }
+      if (record.provisioning_until > Date.now()) throw new Error('Création du salon en cours. Réessayez la suppression.');
+      const path = record.channel_id ? `/channels/${record.channel_id}`
+        : record.message_id && env.AGENT_CHANNEL_ID ? `/channels/${env.AGENT_CHANNEL_ID}/messages/${record.message_id}` : null;
+      if (path) {
+        try { await api(env,path,'DELETE'); }
         catch (error) { if (error.status!==404) throw error; }
       }
       await env.DB.prepare('DELETE FROM agent_records WHERE id=? AND deleted=1').bind(id).run();
       return;
     }
-    const payload = card(JSON.parse(record.data));
+    const agent = JSON.parse(record.data);
+    if (!record.channel_id) {
+      await provisionChannel(env,record,agent,api);
+      continue;
+    }
+    const channelPath = `/channels/${record.channel_id}`;
+    const channel = await api(env,channelPath);
+    if (channel.name !== channelName(agent)) await api(env,channelPath,'PATCH',{name:channelName(agent)});
+    const path = `${channelPath}/messages`;
+    const payload = card(agent);
     let published = false;
     if (record.message_id) {
       try { await api(env,`${path}/${record.message_id}`,'PATCH',payload); published=true; }
@@ -158,7 +208,6 @@ export async function handleAgent(env, i, api) {
   const allowed = roles.includes(direction) || (roles.includes(encadrement) &&
     ['brigade_ajouter','brigade_supprimer','sanction_ajouter'].includes(action.name));
   if (!allowed) throw new Error('Votre rôle ne permet pas cette action.');
-  if (!env.AGENT_CHANNEL_ID) throw new Error('Le salon des fiches est en cours de configuration.');
   const values = Object.fromEntries((action.options ?? []).map(option=>[option.name,option.value]));
   const matricule = clean(values.matricule);
   if (!matricule) throw new Error('Indiquez le matricule.');
@@ -169,7 +218,7 @@ export async function handleAgent(env, i, api) {
     if (action.name==='creer') {
       if (record) {
         if (record.deleted) throw new Error('La suppression de cette fiche est en cours.');
-        if (record.message_id) throw new Error('Ce matricule possède déjà une fiche.');
+        if (record.channel_id && record.message_id) throw new Error('Ce matricule possède déjà une fiche.');
         await publish(env,record.id,api);
         return 'Fiche publiée.';
       }

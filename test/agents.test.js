@@ -7,7 +7,8 @@ import {handleAgent} from '../src/agents.js';
 test('Fiche, historique, auteur de sanction et permissions',async()=>{
   const db=new DatabaseSync(':memory:');
   db.exec(readFileSync(new URL('../migrations/0008_agents.sql',import.meta.url),'utf8'));
-  const env={AGENT_CHANNEL_ID:'registre',DB:{prepare(sql){
+  db.exec(readFileSync(new URL('../migrations/0009_agent_channels.sql',import.meta.url),'utf8'));
+  const env={DB:{prepare(sql){
     const statement=db.prepare(sql);
     return {bind(...args){return {
       first:async()=>statement.get(...args),
@@ -15,7 +16,17 @@ test('Fiche, historique, auteur de sanction et permissions',async()=>{
     };}};
   }}};
   let published;
-  const api=async(_env,_path,method,payload)=>{
+  const api=async(_env,path,method,payload)=>{
+    if (path==='/channels/1570926748361818233') return {type:4,guild_id:'1564674197286953033'};
+    if (path==='/users/@me') return {id:'bot'};
+    if (path.endsWith('/channels') && !method) return [];
+    if (path.endsWith('/channels') && method==='POST') {
+      assert.equal(payload.parent_id,'1570926748361818233');
+      assert.equal(payload.name,'alex-martin');
+      assert.equal(payload.permission_overwrites[0].deny,'1024');
+      return {id:'registre'};
+    }
+    if (path==='/channels/registre' && !method) return {name:'alex-martin'};
     published=method==='DELETE'?null:payload;
     return {id:'fiche'};
   };
